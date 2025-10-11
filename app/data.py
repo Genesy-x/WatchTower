@@ -10,7 +10,6 @@ COINGECKO_API = "https://api.coingecko.com/api/v3"
 def fetch_ohlcv(symbol: str, timeframe: str = "1d", limit: int = 500):
     """
     Fetch OHLCV (price candles) for a given symbol from Binance.
-    Default timeframe is 1d, limit = 500.
     """
     try:
         ohlcv = binance.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
@@ -23,7 +22,7 @@ def fetch_ohlcv(symbol: str, timeframe: str = "1d", limit: int = 500):
         return df
     except Exception as e:
         print(f"[ERROR] Fetching OHLCV for {symbol}: {e}")
-        return None
+        return pd.DataFrame()  # Return empty DF on error
 
 def fetch_market_cap(symbol_id: str = "bitcoin"):
     """
@@ -33,28 +32,38 @@ def fetch_market_cap(symbol_id: str = "bitcoin"):
         url = f"{COINGECKO_API}/coins/markets"
         params = {"vs_currency": "usd", "ids": symbol_id}
         response = requests.get(url, params=params)
-        data = response.json()[0]
-
+        response.raise_for_status()  # Raise on bad status
+        data = response.json()
+        if not data:
+            raise ValueError("Empty response")
+        item = data[0]
         return {
-            "id": data["id"],
-            "symbol": data["symbol"],
-            "name": data["name"],
-            "market_cap": data["market_cap"],
-            "volume_24h": data["total_volume"],
-            "price": data["current_price"],
+            "id": item.get("id", symbol_id),
+            "symbol": item.get("symbol", ""),
+            "name": item.get("name", ""),
+            "market_cap": item.get("market_cap", 0),
+            "volume_24h": item.get("total_volume", 0),
+            "price": item.get("current_price", 0),
             "timestamp": datetime.utcnow().isoformat()
         }
     except Exception as e:
         print(f"[ERROR] Fetching market cap for {symbol_id}: {e}")
-        return None
+        return {
+            "id": symbol_id,
+            "symbol": "",
+            "name": "",
+            "market_cap": 0,
+            "volume_24h": 0,
+            "price": 0,
+            "timestamp": datetime.utcnow().isoformat()
+        }  # Return defaults on error
 
 def fetch_market_data(binance_symbol: str, coingecko_id: str, timeframe: str = "1d", limit: int = 500):
     """
     Combine OHLCV + market cap/volume in one structure.
     """
-    ohlcv_df = fetch_ohlcv(binance_symbol, timeframe=timeframe, limit=limit)
+    ohlcv_df = fetch_ohlcv(binance_symbol, timeframe, limit)
     cap_data = fetch_market_cap(coingecko_id)
-
     return {
         "ohlcv": ohlcv_df,
         "fundamentals": cap_data
