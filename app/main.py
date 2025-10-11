@@ -8,7 +8,7 @@ from datetime import datetime
 import pandas as pd
 import numpy as np
 from apscheduler.schedulers.background import BackgroundScheduler
-import redis
+# import redis
 import os
 
 app = FastAPI(title="WatchTower Backend", version="0.1.0")
@@ -23,7 +23,7 @@ app.add_middleware(
 )
 
 # Redis for caching (set REDIS_URL env var, e.g., redis://localhost:6379/0)
-redis_client = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
+# redis_client = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
 
 ALL_ASSETS = {
     "BTC": {"symbol": "BTCUSDT", "cg_id": "bitcoin"},
@@ -41,16 +41,8 @@ ALL_ASSETS = {
 GOLD = {"symbol": "PAXGUSDT", "cg_id": "pax-gold"}
 
 def cached_fetch_market_data(symbol: str, cg_id: str, timeframe: str = "1d", limit: int = 500):
-    key = f"market_data:{symbol}:{timeframe}:{limit}"
-    cached = redis_client.get(key)
-    if cached:
-        # Decode bytes to string for read_json
-        cached_str = cached.decode('utf-8')
-        ohlcv = pd.read_json(cached_str, orient="split")
-        return {"ohlcv": ohlcv}
-    data = fetch_market_data(symbol, cg_id, timeframe, limit)
-    redis_client.set(key, data["ohlcv"].to_json(orient="split"), ex=3600)
-    return data
+    # Disabled caching; direct fetch
+    return fetch_market_data(symbol, cg_id, timeframe, limit)
 
 @app.get("/backtest")
 async def backtest(start_date: str = "2023-01-01", limit: int = 500, used_assets: int = 6,
