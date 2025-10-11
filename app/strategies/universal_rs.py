@@ -56,7 +56,7 @@ def rotate_equity(rs_data: pd.DataFrame, assets: dict, gold_df: pd.DataFrame, st
                 current_use_gold2 = False
 
         row = rs_data.iloc[i]
-        if np.all(np.isneginf(row)) or row.max() == -np.inf:
+        if row.empty or row.dropna().empty or row.max() == -np.inf or np.all(np.isneginf(row.values)):  # Added empty/NA checks
             top = 'cash'
         else:
             top = row.idxmax()
