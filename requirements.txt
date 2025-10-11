@@ -9,3 +9,4 @@ sqlalchemy==2.0.22
 psycopg2-binary==2.9.9
 apscheduler==3.10.4
 redis==5.0.1
+gunicorn==21.2.0
