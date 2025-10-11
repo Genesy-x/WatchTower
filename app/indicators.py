@@ -1,36 +1,44 @@
 import pandas as pd
-import pandas_ta as ta
 import numpy as np
 
 def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
-    df["RSI"] = ta.rsi(df["close"], length=14)
-    df["Momentum"] = df["close"].pct_change(1)  # ROC(1) equivalent
-    df["SMA50"] = ta.sma(df["close"], length=50)
-    df["SMA200"] = ta.sma(df["close"], length=200)
+    # RSI manual
+    delta = df["close"].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+    rs = gain / loss
+    df["RSI"] = 100 - (100 / (1 + rs))
+
+    df["Momentum"] = df["close"].pct_change(1)
+    df["SMA50"] = df["close"].rolling(window=50).mean()
+    df["SMA200"] = df["close"].rolling(window=200).mean()
     df["VolumeChange"] = df["volume"].pct_change(5)
 
-    # For UNI/TPI approximation
-    df["DEMA"] = ta.dema(df["close"], length=14)
-    df["VIDYA"] = ta.vidya(df["close"], length=14)
-    df["ALMA"] = ta.alma(df["close"], length=9)
-    bb = ta.bbands(df["close"], length=20)
-    
-    # Use index-based access to avoid KeyError on column names
-    if bb is not None and len(bb.columns) >= 3:
-        lower = bb.iloc[:, 0]  # Lower band
-        middle = bb.iloc[:, 1]  # Middle band (not used)
-        upper = bb.iloc[:, 2]  # Upper band
-        df["BB_PCT"] = (df["close"] - lower) / (upper - lower)
-    else:
-        df["BB_PCT"] = np.nan  # Fallback if bbands fails
+    # DEMA manual (double EMA)
+    ema1 = df["close"].ewm(span=14, adjust=False).mean()
+    df["DEMA"] = 2 * ema1 - ema1.ewm(span=14, adjust=False).mean()
 
-    # Signals (+1 bull, -1 bear)
+    # VIDYA (simplified, use EMA with volatility)
+    std = df["close"].rolling(window=14).std()
+    df["VIDYA"] = df["close"].ewm(alpha=2 / (14 + 1) * (1 - std / df["close"]), adjust=False).mean()
+
+    # ALMA (approximate with weighted MA)
+    df["ALMA"] = df["close"].rolling(window=9).apply(lambda x: np.average(x, weights=np.arange(1, 10)), raw=True)
+
+    # BBands manual
+    sma = df["close"].rolling(window=20).mean()
+    std = df["close"].rolling(window=20).std()
+    df["BB_upper"] = sma + 2 * std
+    df["BB_lower"] = sma - 2 * std
+    df["BB_PCT"] = (df["close"] - df["BB_lower"]) / (df["BB_upper"] - df["BB_lower"])
+
+    # Signals
     df["SIG_DEMA"] = np.where(df["close"] > df["DEMA"], 1, -1)
     df["SIG_VIDYA"] = np.where(df["close"] > df["VIDYA"], 1, -1)
     df["SIG_ALMA"] = np.where(df["close"] > df["ALMA"], 1, -1)
     df["SIG_BB"] = np.where(df["BB_PCT"] > 0.5, 1, -1)
 
-    # TPI: Average of signals (Trend Probability Index)
+    # TPI
     df["TPI"] = df[["SIG_DEMA", "SIG_VIDYA", "SIG_ALMA", "SIG_BB"]].mean(axis=1)
 
     return df.dropna()
