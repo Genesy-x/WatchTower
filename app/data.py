@@ -2,6 +2,7 @@ import ccxt
 import requests
 import pandas as pd
 from datetime import datetime
+import time  # For delays
 
 binance = ccxt.binance()
 
@@ -22,48 +23,39 @@ def fetch_ohlcv(symbol: str, timeframe: str = "1d", limit: int = 500):
         return df
     except Exception as e:
         print(f"[ERROR] Fetching OHLCV for {symbol}: {e}")
-        return pd.DataFrame()  # Return empty DF on error
+        return pd.DataFrame()  # Empty on error
 
-def fetch_market_cap(symbol_id: str = "bitcoin"):
+def fetch_market_caps(coingecko_ids: list):
     """
-    Fetch market cap and volume data from CoinGecko using the coin ID.
+    Batch fetch market cap for multiple IDs in one call.
     """
     try:
         url = f"{COINGECKO_API}/coins/markets"
-        params = {"vs_currency": "usd", "ids": symbol_id}
+        params = {"vs_currency": "usd", "ids": ','.join(coingecko_ids)}
         response = requests.get(url, params=params)
-        response.raise_for_status()  # Raise on bad status
+        response.raise_for_status()
         data = response.json()
-        if not data:
-            raise ValueError("Empty response")
-        item = data[0]
-        return {
-            "id": item.get("id", symbol_id),
+        caps = {item["id"]: {
+            "id": item.get("id", ""),
             "symbol": item.get("symbol", ""),
             "name": item.get("name", ""),
             "market_cap": item.get("market_cap", 0),
             "volume_24h": item.get("total_volume", 0),
             "price": item.get("current_price", 0),
             "timestamp": datetime.utcnow().isoformat()
-        }
+        } for item in data}
+        return caps
     except Exception as e:
-        print(f"[ERROR] Fetching market cap for {symbol_id}: {e}")
-        return {
-            "id": symbol_id,
-            "symbol": "",
-            "name": "",
-            "market_cap": 0,
-            "volume_24h": 0,
-            "price": 0,
-            "timestamp": datetime.utcnow().isoformat()
-        }  # Return defaults on error
+        print(f"[ERROR] Batch fetching market caps: {e}")
+        return {id: {"market_cap": 0} for id in coingecko_ids}  # Defaults
 
 def fetch_market_data(binance_symbol: str, coingecko_id: str, timeframe: str = "1d", limit: int = 500):
     """
     Combine OHLCV + market cap/volume in one structure.
     """
     ohlcv_df = fetch_ohlcv(binance_symbol, timeframe, limit)
-    cap_data = fetch_market_cap(coingecko_id)
+    time.sleep(1)  # Delay to avoid rate limits
+    cap_data = fetch_market_caps([coingecko_id]).get(coingecko_id, {"market_cap": 0})
     return {
         "ohlcv": ohlcv_df,
         "fundamentals": cap_data
