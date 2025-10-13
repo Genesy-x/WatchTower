@@ -20,5 +20,16 @@ class BacktestRun(Base):
     alloc_hist = Column(JSON)
     switches = Column(Integer)
 
+class OHLCVData(Base):
+    __tablename__ = "ohlcv_data"
+    id = Column(Integer, primary_key=True, index=True)
+    symbol = Column(String, index=True)
+    timestamp = Column(DateTime, index=True)
+    open = Column(Float)
+    high = Column(Float)
+    low = Column(Float)
+    close = Column(Float)
+    volume = Column(Float)
+
 # Create tables if not exist
 Base.metadata.create_all(bind=engine)

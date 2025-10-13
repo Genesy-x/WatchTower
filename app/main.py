@@ -5,6 +5,7 @@ from app.indicators import compute_indicators
 from app.strategies.universal_rs import compute_relative_strength, rotate_equity, compute_metrics
 from app.db.database import SessionLocal, BacktestRun
 from datetime import datetime
+from app.db.database import OHLCVData
 import pandas as pd
 import numpy as np
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -200,3 +201,34 @@ def scheduled_rebalance():
 scheduler = BackgroundScheduler()
 scheduler.add_job(scheduled_rebalance, 'interval', hours=12)
 scheduler.start()
+
+def fetch_and_store_raw_data(used_assets: int = 6, timeframe: str = "1d", limit: int = 500):
+    db = SessionLocal()
+    assets = dict(list(ALL_ASSETS.items())[:used_assets])
+    for name, info in assets.items():
+        market_data = fetch_market_data(info["symbol"], info["cg_id"], timeframe, limit)
+        ohlcv = market_data["ohlcv"]
+        for index, row in ohlcv.iterrows():
+            existing = db.query(OHLCVData).filter(
+                OHLCVData.symbol == name,
+                OHLCVData.timestamp == index
+            ).first()
+            if not existing:
+                record = OHLCVData(
+                    symbol=name,
+                    timestamp=index,
+                    open=row['open'],
+                    high=row['high'],
+                    low=row['low'],
+                    close=row['close'],
+                    volume=row['volume']
+                )
+                db.add(record)
+    db.commit()
+    db.close()
+
+# Call in scheduler or backtest
+def scheduled_rebalance():
+    fetch_and_store_raw_data()  # Store/update raw data
+    response = backtest()
+    print("Scheduled rebalance complete:", response["metrics"])
