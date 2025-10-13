@@ -23,12 +23,12 @@ app.add_middleware(
 )
 
 ALL_ASSETS = {
-    "BTC": {"symbol": "BTCUSDT", "cg_id": "bitcoin"},  # Keep for consistency, though unused
-    "ETH": {"symbol": "ETHUSDT", "cg_id": "ethereum"},
-    "SOL": {"symbol": "SOLUSDT", "cg_id": "solana"},
+    "BTC": {"symbol": "BTCUSDT"},
+    "ETH": {"symbol": "ETHUSDT"},
+    "SOL": {"symbol": "SOLUSDT"},
 }
 
-GOLD = {"symbol": "PAXGUSDT", "cg_id": "pax-gold"}
+GOLD = {"symbol": "PAXGUSDT"}  # Kept as PAXGUSDT for consistency, mapped to XAUT-USDT
 
 def fetch_and_store_raw_data(used_assets: int = 3, timeframe: str = "1d", limit: int = 10):
     """
@@ -39,7 +39,7 @@ def fetch_and_store_raw_data(used_assets: int = 3, timeframe: str = "1d", limit:
     for name, info in assets.items():
         market_data = fetch_market_data(info["symbol"], timeframe, limit)
         ohlcv = market_data["ohlcv"]
-        print(f"Storing OHLCV for {name}: {ohlcv.head()}")  # Debug output
+        print(f"Storing OHLCV for {name}: {ohlcv.head()}")
         for index, row in ohlcv.iterrows():
             existing = db.query(OHLCVData).filter(
                 OHLCVData.symbol == name,
@@ -56,6 +56,26 @@ def fetch_and_store_raw_data(used_assets: int = 3, timeframe: str = "1d", limit:
                     volume=row['volume']
                 )
                 db.add(record)
+    # Store GOLD data
+    gold_market_data = fetch_market_data(GOLD["symbol"], timeframe, limit)
+    gold_ohlcv = gold_market_data["ohlcv"]
+    print(f"Storing OHLCV for GOLD: {gold_ohlcv.head()}")
+    for index, row in gold_ohlcv.iterrows():
+        existing = db.query(OHLCVData).filter(
+            OHLCVData.symbol == "GOLD",
+            OHLCVData.timestamp == index
+        ).first()
+        if not existing:
+            record = OHLCVData(
+                symbol="GOLD",
+                timestamp=index,
+                open=row['open'],
+                high=row['high'],
+                low=row['low'],
+                close=row['close'],
+                volume=row['volume']
+            )
+            db.add(record)
     db.commit()
     print("Data committed to Neon database")
     db.close()
@@ -69,12 +89,15 @@ async def backtest(start_date: str = "2023-01-01", limit: int = 10, used_assets:
         for name, info in assets.items():
             market_data = fetch_market_data(info["symbol"], timeframe, limit)
             ohlcv = market_data["ohlcv"]
-            print(f"Raw OHLCV for {name}: {ohlcv.head()}")  # Debug raw data
+            print(f"Raw OHLCV for {name}: {ohlcv.head()}")
+            if ohlcv.empty:
+                print(f"Empty OHLCV for {name}")
+                continue
             assets_data[name] = compute_indicators(ohlcv)
 
         gold_market = fetch_market_data(GOLD["symbol"], timeframe, limit)
         gold_data = compute_indicators(gold_market["ohlcv"])
-        print(f"Raw OHLCV for GOLD: {gold_market['ohlcv'].head()}")  # Debug gold data
+        print(f"Raw OHLCV for GOLD: {gold_market['ohlcv'].head()}")
 
         # Unfiltered RS
         rs_data_unfiltered = compute_relative_strength(assets_data, filtered=False)
