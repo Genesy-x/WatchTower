@@ -4,7 +4,7 @@ import pandas as pd
 COINDESK_API_KEY = "74e1e197fe44b98d6c1cfd466095fa9fa4c2a57edea008936b2ac1d5ad5167d1"  # Replace with your own if needed
 COINDESK_BASE = "https://data-api.coindesk.com/spot/v1/historical/hours"
 
-def fetch_historical_ohlc_batch(market: str = "binance", instruments: list = ["BTC-USDT"], start: str = None, end: str = None, limit: int = 500, aggregate: int = 1):
+def fetch_historical_ohlc_batch(market: str = "binance", instruments: list = ["BTC-USDT"], start: str = None, end: str = None, limit: int = 20, aggregate: int = 1):
     """
     Batch fetch historical OHLCV from CoinDesk for multiple instruments in one call.
     - instruments: List of pairs like ["BTC-USDT", "ETH-USDT"]
