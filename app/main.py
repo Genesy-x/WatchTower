@@ -16,34 +16,30 @@ app = FastAPI(title="WatchTower Backend", version="0.1.0")
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://super-salamander-d9eb9b.netlify.app", "http://localhost:3000"],  # Allow Netlify and local frontend
+    allow_origins=["https://super-salamander-d9eb9b.netlify.app", "http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 ALL_ASSETS = {
-    "BTC": {"symbol": "BTCUSDT", "cg_id": "bitcoin"},
+    "BTC": {"symbol": "BTCUSDT", "cg_id": "bitcoin"},  # Keep for consistency, though unused
     "ETH": {"symbol": "ETHUSDT", "cg_id": "ethereum"},
     "SOL": {"symbol": "SOLUSDT", "cg_id": "solana"},
-    # Commented others for 3-asset testing
-    #"XRP": {"symbol": "XRPUSDT", "cg_id": "ripple"},
-    #"DOGE": {"symbol": "DOGEUSDT", "cg_id": "dogecoin"},
-    #"SUI": {"symbol": "SUIUSDT", "cg_id": "sui"},
-    #"BNB": {"symbol": "BNBUSDT", "cg_id": "binancecoin"},
-    #"TRX": {"symbol": "TRXUSDT", "cg_id": "tron"},
-    #"ADA": {"symbol": "ADAUSDT", "cg_id": "cardano"},
-    #"LINK": {"symbol": "LINKUSDT", "cg_id": "chainlink"},
 }
 
 GOLD = {"symbol": "PAXGUSDT", "cg_id": "pax-gold"}
 
 def fetch_and_store_raw_data(used_assets: int = 3, timeframe: str = "1d", limit: int = 10):
+    """
+    Fetch and store raw OHLCV data for assets in the database.
+    """
     db = SessionLocal()
     assets = dict(list(ALL_ASSETS.items())[:used_assets])
     for name, info in assets.items():
-        market_data = fetch_market_data(info["symbol"], info["cg_id"], timeframe, limit)
+        market_data = fetch_market_data(info["symbol"], timeframe, limit)
         ohlcv = market_data["ohlcv"]
+        print(f"Storing OHLCV for {name}: {ohlcv.head()}")  # Debug output
         for index, row in ohlcv.iterrows():
             existing = db.query(OHLCVData).filter(
                 OHLCVData.symbol == name,
@@ -61,6 +57,7 @@ def fetch_and_store_raw_data(used_assets: int = 3, timeframe: str = "1d", limit:
                 )
                 db.add(record)
     db.commit()
+    print("Data committed to Neon database")
     db.close()
 
 @app.get("/backtest")
@@ -70,12 +67,14 @@ async def backtest(start_date: str = "2023-01-01", limit: int = 10, used_assets:
         assets = dict(list(ALL_ASSETS.items())[:used_assets])
         assets_data = {}
         for name, info in assets.items():
-            market_data = fetch_market_data(info["symbol"], info["cg_id"], timeframe, limit)
+            market_data = fetch_market_data(info["symbol"], timeframe, limit)
             ohlcv = market_data["ohlcv"]
+            print(f"Raw OHLCV for {name}: {ohlcv.head()}")  # Debug raw data
             assets_data[name] = compute_indicators(ohlcv)
 
-        gold_market = fetch_market_data(GOLD["symbol"], GOLD["cg_id"], timeframe, limit)
+        gold_market = fetch_market_data(GOLD["symbol"], timeframe, limit)
         gold_data = compute_indicators(gold_market["ohlcv"])
+        print(f"Raw OHLCV for GOLD: {gold_market['ohlcv'].head()}")  # Debug gold data
 
         # Unfiltered RS
         rs_data_unfiltered = compute_relative_strength(assets_data, filtered=False)
@@ -98,10 +97,10 @@ async def backtest(start_date: str = "2023-01-01", limit: int = 10, used_assets:
         else:
             bh_equity = pd.Series(1.0, index=equity_filtered.index)
 
-        # Asset table data (for mainT)
+        # Asset table data
         asset_table = []
         rs_last = rs_data_filtered.iloc[-1]
-        ranks = rs_last.rank(ascending=False, pct=False, method='min')  # 1 for top
+        ranks = rs_last.rank(ascending=False, pct=False, method='min')
         for name, df in assets_data.items():
             tpi_last = df["TPI"].iloc[-1]
             signal = "Long" if tpi_last > 0 else "Short" if tpi_last < 0 else "Neutral"
@@ -116,17 +115,17 @@ async def backtest(start_date: str = "2023-01-01", limit: int = 10, used_assets:
                 "max_dd": round(asset_maxdd, 2)
             })
 
-        # Top 3 (for miniT)
+        # Top 3
         top_assets = rs_last[~np.isneginf(rs_last)].sort_values(ascending=False).index[:3].tolist()
 
         # Current allocation
         current_alloc = alloc_hist_filtered[-1] if alloc_hist_filtered else "CASH"
 
-        # Metrics table (combined for filtered)
+        # Metrics table
         metrics_table = {
             **metrics_filtered,
             "PositionChanges": switches_filtered,
-            "EquityMaxDD": metrics_filtered["MaxDD"],  # Already %
+            "EquityMaxDD": metrics_filtered["MaxDD"],
             "NetProfit": metrics_filtered["NetProfit"]
         }
 
@@ -165,20 +164,19 @@ async def backtest(start_date: str = "2023-01-01", limit: int = 10, used_assets:
         return {"error": str(e)}
 
 @app.get("/rebalance")
-async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str = "12h", limit: int = 10):  # 1 week for recent data
+async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str = "12h", limit: int = 10):
     try:
         assets = dict(list(ALL_ASSETS.items())[:used_assets])
         assets_data = {}
         for name, info in assets.items():
-            market_data = fetch_market_data(info["symbol"], info["cg_id"], timeframe, limit)
+            market_data = fetch_market_data(info["symbol"], timeframe, limit)
             ohlcv = market_data["ohlcv"]
             assets_data[name] = compute_indicators(ohlcv)
 
-        gold_market = fetch_market_data(GOLD["symbol"], GOLD["cg_id"], timeframe, limit)
+        gold_market = fetch_market_data(GOLD["symbol"], timeframe, limit)
         gold_data = compute_indicators(gold_market["ohlcv"])
 
         rs_data = compute_relative_strength(assets_data, filtered=True)
-        # Use recent data, no start_date for live
         equity_filtered, alloc_hist, switches = rotate_equity(rs_data, assets_data, gold_data, use_gold=use_gold)
 
         rs_last = rs_data.iloc[-1]
@@ -190,8 +188,8 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
         for name, df in assets_data.items():
             tpi_last = df["TPI"].iloc[-1]
             signal = "Long" if tpi_last > 0 else "Short" if tpi_last < 0 else "Neutral"
-            asset_returns = df["close"].pct_change().sum() * 100  # Recent returns sum for live
-            asset_maxdd = 0  # Simplified for live; full in backtest
+            asset_returns = df["close"].pct_change().sum() * 100
+            asset_maxdd = 0
             asset_table.append({
                 "name": name,
                 "rank": ranks[name] if not pd.isna(ranks[name]) else "N/A",
@@ -210,9 +208,9 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
     except Exception as e:
         return {"error": str(e)}
 
-# Scheduler for 12h rebalancing (runs backtest and stores)
+# Scheduler for 12h rebalancing
 def scheduled_rebalance():
-    fetch_and_store_raw_data()  # Store/update raw data
+    fetch_and_store_raw_data()
     response = backtest()
     print("Scheduled rebalance complete:", response["metrics"])
 

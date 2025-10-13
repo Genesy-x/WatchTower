@@ -4,7 +4,7 @@ import pandas as pd
 COINDESK_API_KEY = "74e1e197fe44b98d6c1cfd466095fa9fa4c2a57edea008936b2ac1d5ad5167d1"  # Replace if needed
 COINDESK_BASE = "https://data-api.coindesk.com/spot/v1/historical/hours"
 
-def fetch_historical_ohlc_btc(start: str = None, end: str = None, limit: int = 500, aggregate: int = 1):
+def fetch_historical_ohlc_btc(start: str = None, end: str = None, limit: int = 10, aggregate: int = 1):
     """Fetch historical OHLCV data for BTC-USDT."""
     params = {
         "market": "binance",
@@ -37,7 +37,7 @@ def fetch_historical_ohlc_btc(start: str = None, end: str = None, limit: int = 5
         print(f"[ERROR] Fetching CoinDesk OHLC for BTC-USDT: {e}")
         return pd.DataFrame()
 
-def fetch_historical_ohlc_eth(start: str = None, end: str = None, limit: int = 500, aggregate: int = 1):
+def fetch_historical_ohlc_eth(start: str = None, end: str = None, limit: int = 10, aggregate: int = 1):
     """Fetch historical OHLCV data for ETH-USDT."""
     params = {
         "market": "binance",
@@ -70,7 +70,7 @@ def fetch_historical_ohlc_eth(start: str = None, end: str = None, limit: int = 5
         print(f"[ERROR] Fetching CoinDesk OHLC for ETH-USDT: {e}")
         return pd.DataFrame()
 
-def fetch_historical_ohlc_sol(start: str = None, end: str = None, limit: int = 500, aggregate: int = 1):
+def fetch_historical_ohlc_sol(start: str = None, end: str = None, limit: int = 10, aggregate: int = 1):
     """Fetch historical OHLCV data for SOL-USDT."""
     params = {
         "market": "binance",
@@ -103,9 +103,10 @@ def fetch_historical_ohlc_sol(start: str = None, end: str = None, limit: int = 5
         print(f"[ERROR] Fetching CoinDesk OHLC for SOL-USDT: {e}")
         return pd.DataFrame()
 
-def fetch_market_data(binance_symbol: str, coingecko_id: str, timeframe: str = "1d", limit: int = 500):
+def fetch_market_data(binance_symbol: str, timeframe: str = "1d", limit: int = 10):
     """
     Fetch OHLCV for a single asset based on symbol, using specific fetch function.
+    No coingecko_id needed since we use CoinDesk only.
     """
     instrument_map = {
         "BTCUSDT": fetch_historical_ohlc_btc,

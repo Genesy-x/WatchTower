@@ -33,3 +33,4 @@ class OHLCVData(Base):
 
 # Create tables if not exist
 Base.metadata.create_all(bind=engine)
+print(f"Database tables created or verified at {DATABASE_URL}")  # Debug
