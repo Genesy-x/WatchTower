@@ -9,7 +9,6 @@ from app.db.database import OHLCVData
 import pandas as pd
 import numpy as np
 from apscheduler.schedulers.background import BackgroundScheduler
-# import redis
 import os
 
 app = FastAPI(title="WatchTower Backend", version="0.1.0")
@@ -23,40 +22,59 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Redis for caching (set REDIS_URL env var, e.g., redis://localhost:6379/0)
-# redis_client = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
-
 ALL_ASSETS = {
     "BTC": {"symbol": "BTCUSDT", "cg_id": "bitcoin"},
     "ETH": {"symbol": "ETHUSDT", "cg_id": "ethereum"},
     "SOL": {"symbol": "SOLUSDT", "cg_id": "solana"},
-    "XRP": {"symbol": "XRPUSDT", "cg_id": "ripple"},
-    "DOGE": {"symbol": "DOGEUSDT", "cg_id": "dogecoin"},
-    "SUI": {"symbol": "SUIUSDT", "cg_id": "sui"},
-    "BNB": {"symbol": "BNBUSDT", "cg_id": "binancecoin"},
-    "TRX": {"symbol": "TRXUSDT", "cg_id": "tron"},
-    "ADA": {"symbol": "ADAUSDT", "cg_id": "cardano"},
-    "LINK": {"symbol": "LINKUSDT", "cg_id": "chainlink"},
+    # Commented others for 3-asset testing
+    #"XRP": {"symbol": "XRPUSDT", "cg_id": "ripple"},
+    #"DOGE": {"symbol": "DOGEUSDT", "cg_id": "dogecoin"},
+    #"SUI": {"symbol": "SUIUSDT", "cg_id": "sui"},
+    #"BNB": {"symbol": "BNBUSDT", "cg_id": "binancecoin"},
+    #"TRX": {"symbol": "TRXUSDT", "cg_id": "tron"},
+    #"ADA": {"symbol": "ADAUSDT", "cg_id": "cardano"},
+    #"LINK": {"symbol": "LINKUSDT", "cg_id": "chainlink"},
 }
 
 GOLD = {"symbol": "PAXGUSDT", "cg_id": "pax-gold"}
 
-def cached_fetch_market_data(symbol: str, cg_id: str, timeframe: str = "1d", limit: int = 10):
-    # Disabled caching; direct fetch
-    return fetch_market_data(symbol, cg_id, timeframe, limit)
+def fetch_and_store_raw_data(used_assets: int = 3, timeframe: str = "1d", limit: int = 10):
+    db = SessionLocal()
+    assets = dict(list(ALL_ASSETS.items())[:used_assets])
+    for name, info in assets.items():
+        market_data = fetch_market_data(info["symbol"], info["cg_id"], timeframe, limit)
+        ohlcv = market_data["ohlcv"]
+        for index, row in ohlcv.iterrows():
+            existing = db.query(OHLCVData).filter(
+                OHLCVData.symbol == name,
+                OHLCVData.timestamp == index
+            ).first()
+            if not existing:
+                record = OHLCVData(
+                    symbol=name,
+                    timestamp=index,
+                    open=row['open'],
+                    high=row['high'],
+                    low=row['low'],
+                    close=row['close'],
+                    volume=row['volume']
+                )
+                db.add(record)
+    db.commit()
+    db.close()
 
 @app.get("/backtest")
-async def backtest(start_date: str = "2023-01-01", limit: int = 10, used_assets: int = 6,
+async def backtest(start_date: str = "2023-01-01", limit: int = 10, used_assets: int = 3,
                    use_gold: bool = True, benchmark: str = "BTC", timeframe: str = "1d"):
     try:
         assets = dict(list(ALL_ASSETS.items())[:used_assets])
         assets_data = {}
         for name, info in assets.items():
-            market_data = cached_fetch_market_data(info["symbol"], info["cg_id"], timeframe, limit)
+            market_data = fetch_market_data(info["symbol"], info["cg_id"], timeframe, limit)
             ohlcv = market_data["ohlcv"]
             assets_data[name] = compute_indicators(ohlcv)
 
-        gold_market = cached_fetch_market_data(GOLD["symbol"], GOLD["cg_id"], timeframe, limit)
+        gold_market = fetch_market_data(GOLD["symbol"], GOLD["cg_id"], timeframe, limit)
         gold_data = compute_indicators(gold_market["ohlcv"])
 
         # Unfiltered RS
@@ -147,16 +165,16 @@ async def backtest(start_date: str = "2023-01-01", limit: int = 10, used_assets:
         return {"error": str(e)}
 
 @app.get("/rebalance")
-async def rebalance(used_assets: int = 6, use_gold: bool = True, timeframe: str = "12h", limit: int = 10):  # 168 = 1 week for recent data
+async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str = "12h", limit: int = 10):  # 1 week for recent data
     try:
         assets = dict(list(ALL_ASSETS.items())[:used_assets])
         assets_data = {}
         for name, info in assets.items():
-            market_data = cached_fetch_market_data(info["symbol"], info["cg_id"], timeframe, limit)
+            market_data = fetch_market_data(info["symbol"], info["cg_id"], timeframe, limit)
             ohlcv = market_data["ohlcv"]
             assets_data[name] = compute_indicators(ohlcv)
 
-        gold_market = cached_fetch_market_data(GOLD["symbol"], GOLD["cg_id"], timeframe, limit)
+        gold_market = fetch_market_data(GOLD["symbol"], GOLD["cg_id"], timeframe, limit)
         gold_data = compute_indicators(gold_market["ohlcv"])
 
         rs_data = compute_relative_strength(assets_data, filtered=True)
@@ -194,41 +212,10 @@ async def rebalance(used_assets: int = 6, use_gold: bool = True, timeframe: str 
 
 # Scheduler for 12h rebalancing (runs backtest and stores)
 def scheduled_rebalance():
-    # Call backtest logic with defaults
+    fetch_and_store_raw_data()  # Store/update raw data
     response = backtest()
     print("Scheduled rebalance complete:", response["metrics"])
 
 scheduler = BackgroundScheduler()
 scheduler.add_job(scheduled_rebalance, 'interval', hours=12)
 scheduler.start()
-
-def fetch_and_store_raw_data(used_assets: int = 6, timeframe: str = "1d", limit: int = 10):
-    db = SessionLocal()
-    assets = dict(list(ALL_ASSETS.items())[:used_assets])
-    for name, info in assets.items():
-        market_data = fetch_market_data(info["symbol"], info["cg_id"], timeframe, limit)
-        ohlcv = market_data["ohlcv"]
-        for index, row in ohlcv.iterrows():
-            existing = db.query(OHLCVData).filter(
-                OHLCVData.symbol == name,
-                OHLCVData.timestamp == index
-            ).first()
-            if not existing:
-                record = OHLCVData(
-                    symbol=name,
-                    timestamp=index,
-                    open=row['open'],
-                    high=row['high'],
-                    low=row['low'],
-                    close=row['close'],
-                    volume=row['volume']
-                )
-                db.add(record)
-    db.commit()
-    db.close()
-
-# Call in scheduler or backtest
-def scheduled_rebalance():
-    fetch_and_store_raw_data()  # Store/update raw data
-    response = backtest()
-    print("Scheduled rebalance complete:", response["metrics"])
