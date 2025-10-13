@@ -41,12 +41,12 @@ ALL_ASSETS = {
 
 GOLD = {"symbol": "PAXGUSDT", "cg_id": "pax-gold"}
 
-def cached_fetch_market_data(symbol: str, cg_id: str, timeframe: str = "1d", limit: int = 500):
+def cached_fetch_market_data(symbol: str, cg_id: str, timeframe: str = "1d", limit: int = 10):
     # Disabled caching; direct fetch
     return fetch_market_data(symbol, cg_id, timeframe, limit)
 
 @app.get("/backtest")
-async def backtest(start_date: str = "2023-01-01", limit: int = 500, used_assets: int = 6,
+async def backtest(start_date: str = "2023-01-01", limit: int = 10, used_assets: int = 6,
                    use_gold: bool = True, benchmark: str = "BTC", timeframe: str = "1d"):
     try:
         assets = dict(list(ALL_ASSETS.items())[:used_assets])
@@ -147,7 +147,7 @@ async def backtest(start_date: str = "2023-01-01", limit: int = 500, used_assets
         return {"error": str(e)}
 
 @app.get("/rebalance")
-async def rebalance(used_assets: int = 6, use_gold: bool = True, timeframe: str = "12h", limit: int = 168):  # 1 week for recent data
+async def rebalance(used_assets: int = 6, use_gold: bool = True, timeframe: str = "12h", limit: int = 10):  # 168 = 1 week for recent data
     try:
         assets = dict(list(ALL_ASSETS.items())[:used_assets])
         assets_data = {}
@@ -202,7 +202,7 @@ scheduler = BackgroundScheduler()
 scheduler.add_job(scheduled_rebalance, 'interval', hours=12)
 scheduler.start()
 
-def fetch_and_store_raw_data(used_assets: int = 6, timeframe: str = "1d", limit: int = 500):
+def fetch_and_store_raw_data(used_assets: int = 6, timeframe: str = "1d", limit: int = 10):
     db = SessionLocal()
     assets = dict(list(ALL_ASSETS.items())[:used_assets])
     for name, info in assets.items():
