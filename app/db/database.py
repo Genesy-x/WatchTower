@@ -4,7 +4,7 @@ from sqlalchemy.orm import sessionmaker
 import sqlalchemy.orm as orm
 import os
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://localhost/watchtower_db")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://neondb_owner:npg_IKyBX6Hiwk2V@ep-round-pond-abe3svbu-pooler.eu-west-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require")
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
