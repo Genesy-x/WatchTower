@@ -6,10 +6,10 @@ logger = logging.getLogger(__name__)
 
 def compute_relative_strength(assets: dict, filtered: bool = True) -> pd.DataFrame:
     """
-    Compute RS ranks, optionally filtering by TPI > 0.
+    Compute RS ranks based on tournament scores, optionally filtering by TPI > 0.
     """
     momentum_dict = {name: df["Momentum"] for name, df in assets.items()}
-    momentum_df = pd.DataFrame(momentum_dict).dropna(how='all').ffill()  # Handle partial overlaps
+    momentum_df = pd.DataFrame(momentum_dict).dropna(how='all').ffill()
 
     if momentum_df.empty:
         raise ValueError("No overlapping data.")
@@ -24,7 +24,7 @@ def compute_relative_strength(assets: dict, filtered: bool = True) -> pd.DataFra
 
 def rotate_equity(rs_data: pd.DataFrame, assets: dict, gold_df: pd.DataFrame, start_date: str = None, use_gold: bool = True) -> tuple:
     """
-    Simulate rotation among BTC, ETH, SOL, or CASH/GOLD based on dominance.
+    Simulate rotation among top tournament assets or CASH/GOLD.
     Returns equity, alloc_hist, switches.
     """
     if start_date:
@@ -34,7 +34,6 @@ def rotate_equity(rs_data: pd.DataFrame, assets: dict, gold_df: pd.DataFrame, st
     if rs_data.empty:
         raise ValueError("No RS data available.")
 
-    # Include GOLD in returns calculation
     returns_dict = {name: df["close"].reindex(rs_data.index).pct_change().fillna(0) for name, df in {**assets, "GOLD": gold_df}.items()}
     returns_df = pd.DataFrame(returns_dict)
 
@@ -60,7 +59,6 @@ def rotate_equity(rs_data: pd.DataFrame, assets: dict, gold_df: pd.DataFrame, st
             logger.info(f"Switch at {rs_data.index[i]}: {top}")
 
         if top == 'cash':
-            # Use GOLD if TPI positive and use_gold is True, otherwise cash
             gold_tpi_prev = gold_tpi.iloc[i] if i > 0 else gold_tpi.iloc[0]
             current_use_gold = gold_tpi_prev > 0 and use_gold
             period_return = gold_returns.iloc[i] if current_use_gold else 0
