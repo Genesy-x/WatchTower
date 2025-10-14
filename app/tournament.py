@@ -15,12 +15,22 @@ def run_tournament(assets):
         try:
             data = fetch_market_data(symbol, "1d", 700)
             df = compute_indicators(data["ohlcv"])
-            # Mock fundamentals since CoinDesk doesn't provide them
+            if df.empty or len(df) < 100:  # Minimum 100 days for validity
+                print(f"[WARNING] Insufficient data for {symbol}: {len(df)} rows")
+                results.append({
+                    "symbol": symbol,
+                    "name": symbol.replace("USDT", ""),
+                    "score": 0.0,
+                    "price": 0,
+                    "market_cap": 0
+                })
+                continue
+            # Mock fundamentals
             fundamentals = {
                 "name": symbol.replace("USDT", ""),
-                "price": df["close"].iloc[-1] if not df.empty and len(df) > 1 else 0,
-                "market_cap": 0,  # Placeholder, adjust if available
-                "volume_24h": df["volume"].iloc[-1] if not df.empty and len(df) > 1 else 0
+                "price": df["close"].iloc[-1] if not df.empty else 0,
+                "market_cap": 0,
+                "volume_24h": df["volume"].iloc[-1] if not df.empty else 0
             }
             score = score_coin(df, fundamentals)
             results.append({
@@ -39,7 +49,7 @@ def run_tournament(assets):
                 "score": 0.0,
                 "price": 0,
                 "market_cap": 0
-            })  # Add default entry to avoid empty results
+            })
 
     # Sort by score descending
     results = sorted(results, key=lambda x: x["score"], reverse=True)

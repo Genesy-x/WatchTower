@@ -11,29 +11,31 @@ def score_coin(df: pd.DataFrame, fundamentals: dict):
         score (float)
     """
     if df.empty or len(df) < 2:
-        return 0.0  # Default score for empty data
+        print(f"[DEBUG] Empty or insufficient data in score_coin: {df.head()}")
+        return 0.0
 
-    latest = df.iloc[-1].dropna()  # Drop NaN values from the latest row
+    latest = df.iloc[-1].dropna()
     if latest.empty:
-        return 0.0  # Handle case where all values are NaN
+        print(f"[DEBUG] All NaN in latest row: {df.iloc[-1]}")
+        return 0.0
 
-    # Normalize indicators to 0–1 scale, handle missing values explicitly
+    print(f"[DEBUG] Latest row for scoring: {latest}")  # Debug the Series
+
+    # Extract scalar values explicitly to avoid Series ambiguity
     momentum = latest.get("Momentum")
-    momentum_score = np.tanh(momentum / 100) if pd.notna(momentum) and isinstance(momentum, (int, float)) else 0
+    momentum_score = np.tanh(momentum / 100) if pd.notna(momentum) and not isinstance(momentum, pd.Series) else 0
 
     rsi = latest.get("RSI")
-    rsi_score = 1 - abs(50 - rsi) / 50 if pd.notna(rsi) and isinstance(rsi, (int, float)) else 0.5  # Neutral if NA
+    rsi_score = 1 - abs(50 - rsi) / 50 if pd.notna(rsi) and not isinstance(rsi, pd.Series) else 0.5
 
     sma50 = latest.get("SMA50", 0)
     sma200 = latest.get("SMA200", 0)
-    sma_trend = (sma50 - sma200) / (sma200 or 1) if pd.notna(sma50) and pd.notna(sma200) else 0
+    sma_trend = (sma50 - sma200) / (sma200 or 1) if pd.notna(sma50) and pd.notna(sma200) and not isinstance(sma50, pd.Series) and not isinstance(sma200, pd.Series) else 0
     sma_score = np.tanh(sma_trend * 10)
 
-    # Volume-to-market-cap ratio
     vol_ratio = (fundamentals.get("volume_24h", 0) / (fundamentals.get("market_cap", 1) or 1))
     vol_score = np.tanh(vol_ratio * 1e3)
 
-    # Weighted combination
     score = (
         0.35 * momentum_score +
         0.25 * rsi_score +
