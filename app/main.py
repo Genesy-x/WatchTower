@@ -4,9 +4,8 @@ from app.data import fetch_market_data
 from app.indicators import compute_indicators
 from app.strategies.universal_rs import compute_relative_strength, rotate_equity, compute_metrics
 from app.tournament import run_tournament
-from app.db.database import SessionLocal, BacktestRun
+from app.db.database import SessionLocal, BacktestRun, OHLCVData  # Corrected import
 from datetime import datetime
-from app.data import OHLCVData
 import pandas as pd
 import numpy as np
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -27,7 +26,7 @@ ALL_ASSETS = [
     ("BTCUSDT", "bitcoin"),
     ("ETHUSDT", "ethereum"),
     ("SOLUSDT", "solana"),
-    ("PAXGUSDT", "pax-gold")  # Adjusted for tournament format
+    ("PAXGUSDT", "pax-gold")
 ]
 
 def fetch_and_store_raw_data(assets=ALL_ASSETS, timeframe: str = "1d", limit: int = 700):
