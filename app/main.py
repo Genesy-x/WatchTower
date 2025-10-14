@@ -26,11 +26,10 @@ ALL_ASSETS = {
     "BTC": {"symbol": "BTCUSDT"},
     "ETH": {"symbol": "ETHUSDT"},
     "SOL": {"symbol": "SOLUSDT"},
+    "GOLD": {"symbol": "PAXGUSDT"}  # Added GOLD as an asset
 }
 
-GOLD = {"symbol": "PAXGUSDT"}  # Kept as PAXGUSDT for consistency, mapped to XAUT-USDT
-
-def fetch_and_store_raw_data(used_assets: int = 3, timeframe: str = "1d", limit: int = 10):
+def fetch_and_store_raw_data(used_assets: int = 4, timeframe: str = "1d", limit: int = 500):
     """
     Fetch and store raw OHLCV data for assets in the database.
     """
@@ -56,32 +55,12 @@ def fetch_and_store_raw_data(used_assets: int = 3, timeframe: str = "1d", limit:
                     volume=row['volume']
                 )
                 db.add(record)
-    # Store GOLD data
-    gold_market_data = fetch_market_data(GOLD["symbol"], timeframe, limit)
-    gold_ohlcv = gold_market_data["ohlcv"]
-    print(f"Storing OHLCV for GOLD: {gold_ohlcv.head()}")
-    for index, row in gold_ohlcv.iterrows():
-        existing = db.query(OHLCVData).filter(
-            OHLCVData.symbol == "GOLD",
-            OHLCVData.timestamp == index
-        ).first()
-        if not existing:
-            record = OHLCVData(
-                symbol="GOLD",
-                timestamp=index,
-                open=row['open'],
-                high=row['high'],
-                low=row['low'],
-                close=row['close'],
-                volume=row['volume']
-            )
-            db.add(record)
     db.commit()
     print("Data committed to Neon database")
     db.close()
 
 @app.get("/backtest")
-async def backtest(start_date: str = "2023-01-01", limit: int = 10, used_assets: int = 3,
+async def backtest(start_date: str = "2024-01-01", limit: int = 500, used_assets: int = 4,
                    use_gold: bool = True, benchmark: str = "BTC", timeframe: str = "1d"):
     try:
         assets = dict(list(ALL_ASSETS.items())[:used_assets])
@@ -95,7 +74,8 @@ async def backtest(start_date: str = "2023-01-01", limit: int = 10, used_assets:
                 continue
             assets_data[name] = compute_indicators(ohlcv)
 
-        gold_market = fetch_market_data(GOLD["symbol"], timeframe, limit)
+        # Ensure gold_data is always fetched, even if not used in rotation
+        gold_market = fetch_market_data(ALL_ASSETS["GOLD"]["symbol"], timeframe, limit)
         gold_data = compute_indicators(gold_market["ohlcv"])
         print(f"Raw OHLCV for GOLD: {gold_market['ohlcv'].head()}")
 
@@ -120,7 +100,7 @@ async def backtest(start_date: str = "2023-01-01", limit: int = 10, used_assets:
         else:
             bh_equity = pd.Series(1.0, index=equity_filtered.index)
 
-        # Asset table data
+        # Asset table data (tournament-style)
         asset_table = []
         rs_last = rs_data_filtered.iloc[-1]
         ranks = rs_last.rank(ascending=False, pct=False, method='min')
@@ -132,13 +112,13 @@ async def backtest(start_date: str = "2023-01-01", limit: int = 10, used_assets:
             asset_maxdd = ((asset_equity / asset_equity.cummax()) - 1).min() * 100
             asset_table.append({
                 "name": name,
-                "rank": ranks[name] if not pd.isna(ranks[name]) else "N/A",
+                "rank": int(ranks[name]) if not pd.isna(ranks[name]) else "N/A",
                 "signal": signal,
                 "returns": round(asset_returns, 2),
                 "max_dd": round(asset_maxdd, 2)
             })
 
-        # Top 3
+        # Top 3 (including GOLD if in top)
         top_assets = rs_last[~np.isneginf(rs_last)].sort_values(ascending=False).index[:3].tolist()
 
         # Current allocation
@@ -187,7 +167,7 @@ async def backtest(start_date: str = "2023-01-01", limit: int = 10, used_assets:
         return {"error": str(e)}
 
 @app.get("/rebalance")
-async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str = "12h", limit: int = 10):
+async def rebalance(used_assets: int = 4, use_gold: bool = True, timeframe: str = "1d", limit: int = 500):
     try:
         assets = dict(list(ALL_ASSETS.items())[:used_assets])
         assets_data = {}
@@ -196,7 +176,7 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
             ohlcv = market_data["ohlcv"]
             assets_data[name] = compute_indicators(ohlcv)
 
-        gold_market = fetch_market_data(GOLD["symbol"], timeframe, limit)
+        gold_market = fetch_market_data(ALL_ASSETS["GOLD"]["symbol"], timeframe, limit)
         gold_data = compute_indicators(gold_market["ohlcv"])
 
         rs_data = compute_relative_strength(assets_data, filtered=True)
@@ -215,7 +195,7 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
             asset_maxdd = 0
             asset_table.append({
                 "name": name,
-                "rank": ranks[name] if not pd.isna(ranks[name]) else "N/A",
+                "rank": int(ranks[name]) if not pd.isna(ranks[name]) else "N/A",
                 "signal": signal,
                 "returns": round(asset_returns, 2),
                 "max_dd": round(asset_maxdd, 2)
@@ -231,12 +211,12 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
     except Exception as e:
         return {"error": str(e)}
 
-# Scheduler for 12h rebalancing
+# Scheduler for 1d rebalancing
 def scheduled_rebalance():
     fetch_and_store_raw_data()
     response = backtest()
     print("Scheduled rebalance complete:", response["metrics"])
 
 scheduler = BackgroundScheduler()
-scheduler.add_job(scheduled_rebalance, 'interval', hours=12)
+scheduler.add_job(scheduled_rebalance, 'interval', days=1)  # Changed to 1 day for 1d timeframe
 scheduler.start()

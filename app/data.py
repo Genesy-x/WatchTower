@@ -4,23 +4,21 @@ import pandas as pd
 COINDESK_API_KEY = "74e1e197fe44b98d6c1cfd466095fa9fa4c2a57edea008936b2ac1d5ad5167d1"  # Replace if needed
 COINDESK_BASE = "https://data-api.coindesk.com/spot/v1/historical/hours"
 
-def fetch_historical_ohlc_btc(start: str = None, end: str = None, limit: int = 10, aggregate: int = 1):
-    """Fetch historical OHLCV data for BTC-USDT on Binance."""
+def fetch_historical_ohlc_btc(start: str = "2024-01-01", end: str = None, limit: int = 500, aggregate: int = 24):
+    """Fetch 1d historical OHLCV data for BTCUSDT on Binance."""
     params = {
         "market": "binance",
-        "instrument": "BTC-USDT",
+        "instrument": "BTCUSDT",
+        "start": start,
+        "end": end,
         "limit": limit,
-        "aggregate": aggregate,
+        "aggregate": aggregate,  # 24 for 1d from hourly
         "fill": "true",
         "apply_mapping": "true",
         "response_format": "JSON",
         "groups": "ID,VOLUME,OHLC",
         "api_key": COINDESK_API_KEY
     }
-    if start:
-        params["start"] = start
-    if end:
-        params["end"] = end
 
     try:
         response = requests.get(COINDESK_BASE, params=params)
@@ -34,14 +32,16 @@ def fetch_historical_ohlc_btc(start: str = None, end: str = None, limit: int = 1
         df.columns = ["open", "high", "low", "close", "volume"]
         return df
     except Exception as e:
-        print(f"[ERROR] Fetching CoinDesk OHLC for BTC-USDT: {e}")
+        print(f"[ERROR] Fetching CoinDesk OHLC for BTCUSDT: {e}")
         return pd.DataFrame()
 
-def fetch_historical_ohlc_eth(start: str = None, end: str = None, limit: int = 10, aggregate: int = 1):
-    """Fetch historical OHLCV data for ETH-USDT on Binance."""
+def fetch_historical_ohlc_eth(start: str = "2024-01-01", end: str = None, limit: int = 500, aggregate: int = 24):
+    """Fetch 1d historical OHLCV data for ETHUSDT on Binance."""
     params = {
         "market": "binance",
-        "instrument": "ETH-USDT",
+        "instrument": "ETHUSDT",
+        "start": start,
+        "end": end,
         "limit": limit,
         "aggregate": aggregate,
         "fill": "true",
@@ -50,10 +50,6 @@ def fetch_historical_ohlc_eth(start: str = None, end: str = None, limit: int = 1
         "groups": "ID,VOLUME,OHLC",
         "api_key": COINDESK_API_KEY
     }
-    if start:
-        params["start"] = start
-    if end:
-        params["end"] = end
 
     try:
         response = requests.get(COINDESK_BASE, params=params)
@@ -67,14 +63,16 @@ def fetch_historical_ohlc_eth(start: str = None, end: str = None, limit: int = 1
         df.columns = ["open", "high", "low", "close", "volume"]
         return df
     except Exception as e:
-        print(f"[ERROR] Fetching CoinDesk OHLC for ETH-USDT: {e}")
+        print(f"[ERROR] Fetching CoinDesk OHLC for ETHUSDT: {e}")
         return pd.DataFrame()
 
-def fetch_historical_ohlc_sol(start: str = None, end: str = None, limit: int = 10, aggregate: int = 1):
-    """Fetch historical OHLCV data for SOL-USDT on Binance."""
+def fetch_historical_ohlc_sol(start: str = "2024-01-01", end: str = None, limit: int = 500, aggregate: int = 24):
+    """Fetch 1d historical OHLCV data for SOLUSDT on Binance."""
     params = {
         "market": "binance",
-        "instrument": "SOL-USDT",
+        "instrument": "SOLUSDT",
+        "start": start,
+        "end": end,
         "limit": limit,
         "aggregate": aggregate,
         "fill": "true",
@@ -83,10 +81,6 @@ def fetch_historical_ohlc_sol(start: str = None, end: str = None, limit: int = 1
         "groups": "ID,VOLUME,OHLC",
         "api_key": COINDESK_API_KEY
     }
-    if start:
-        params["start"] = start
-    if end:
-        params["end"] = end
 
     try:
         response = requests.get(COINDESK_BASE, params=params)
@@ -100,14 +94,16 @@ def fetch_historical_ohlc_sol(start: str = None, end: str = None, limit: int = 1
         df.columns = ["open", "high", "low", "close", "volume"]
         return df
     except Exception as e:
-        print(f"[ERROR] Fetching CoinDesk OHLC for SOL-USDT: {e}")
+        print(f"[ERROR] Fetching CoinDesk OHLC for SOLUSDT: {e}")
         return pd.DataFrame()
 
-def fetch_historical_ohlc_xaut(start: str = None, end: str = None, limit: int = 10, aggregate: int = 1):
-    """Fetch historical OHLCV data for XAUT-USDT on Kraken."""
+def fetch_historical_ohlc_xaut(start: str = "2024-01-01", end: str = None, limit: int = 500, aggregate: int = 24):
+    """Fetch 1d historical OHLCV data for XAUTUSDT on Kraken."""
     params = {
         "market": "kraken",
-        "instrument": "XAUT-USDT",
+        "instrument": "XAUTUSDT",
+        "start": start,
+        "end": end,
         "limit": limit,
         "aggregate": aggregate,
         "fill": "true",
@@ -116,10 +112,6 @@ def fetch_historical_ohlc_xaut(start: str = None, end: str = None, limit: int = 
         "groups": "ID,VOLUME,OHLC",
         "api_key": COINDESK_API_KEY
     }
-    if start:
-        params["start"] = start
-    if end:
-        params["end"] = end
 
     try:
         response = requests.get(COINDESK_BASE, params=params)
@@ -133,10 +125,10 @@ def fetch_historical_ohlc_xaut(start: str = None, end: str = None, limit: int = 
         df.columns = ["open", "high", "low", "close", "volume"]
         return df
     except Exception as e:
-        print(f"[ERROR] Fetching CoinDesk OHLC for XAUT-USDT: {e}")
+        print(f"[ERROR] Fetching CoinDesk OHLC for XAUTUSDT: {e}")
         return pd.DataFrame()
 
-def fetch_market_data(binance_symbol: str, timeframe: str = "1d", limit: int = 10):
+def fetch_market_data(binance_symbol: str, timeframe: str = "1d", limit: int = 500):
     """
     Fetch OHLCV for a single asset based on symbol, using specific fetch function.
     """
@@ -144,14 +136,14 @@ def fetch_market_data(binance_symbol: str, timeframe: str = "1d", limit: int = 1
         "BTCUSDT": fetch_historical_ohlc_btc,
         "ETHUSDT": fetch_historical_ohlc_eth,
         "SOLUSDT": fetch_historical_ohlc_sol,
-        "PAXGUSDT": fetch_historical_ohlc_xaut  # Updated for XAUT-USDT on Kraken
+        "PAXGUSDT": fetch_historical_ohlc_xaut  # GOLD mapping
     }
     fetch_func = instrument_map.get(binance_symbol)
     if not fetch_func:
         print(f"[ERROR] No fetch function for {binance_symbol}")
         return {"ohlcv": pd.DataFrame(), "fundamentals": {}}
     
-    ohlcv_df = fetch_func(limit=limit, aggregate=24 if timeframe == "1d" else 1)
+    ohlcv_df = fetch_func(limit=limit)
     return {
         "ohlcv": ohlcv_df,
         "fundamentals": {}  # Empty
