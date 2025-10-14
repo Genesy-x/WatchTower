@@ -14,15 +14,23 @@ def score_coin(df: pd.DataFrame, fundamentals: dict):
         return 0.0  # Default score for empty data
 
     latest = df.iloc[-1].dropna()  # Drop NaN values from the latest row
+    if latest.empty:
+        return 0.0  # Handle case where all values are NaN
 
-    # Normalize indicators to 0–1 scale, handle missing values
-    momentum_score = np.tanh(latest.get("Momentum", 0) / 100) if "Momentum" in latest else 0
-    rsi_score = 1 - abs(50 - latest.get("RSI", 50)) / 50 if "RSI" in latest else 0.5  # Neutral if NA
-    sma_trend = (latest.get("SMA50", 0) - latest.get("SMA200", 0)) / (latest.get("SMA200", 1) or 1) if "SMA50" in latest and "SMA200" in latest else 0
+    # Normalize indicators to 0–1 scale, handle missing values explicitly
+    momentum = latest.get("Momentum")
+    momentum_score = np.tanh(momentum / 100) if pd.notna(momentum) and isinstance(momentum, (int, float)) else 0
+
+    rsi = latest.get("RSI")
+    rsi_score = 1 - abs(50 - rsi) / 50 if pd.notna(rsi) and isinstance(rsi, (int, float)) else 0.5  # Neutral if NA
+
+    sma50 = latest.get("SMA50", 0)
+    sma200 = latest.get("SMA200", 0)
+    sma_trend = (sma50 - sma200) / (sma200 or 1) if pd.notna(sma50) and pd.notna(sma200) else 0
     sma_score = np.tanh(sma_trend * 10)
 
-    # Volume-to-market-cap ratio (handle zero division)
-    vol_ratio = (fundamentals.get("volume_24h", 0) / (fundamentals.get("market_cap", 1) or 1))  # Avoid division by zero
+    # Volume-to-market-cap ratio
+    vol_ratio = (fundamentals.get("volume_24h", 0) / (fundamentals.get("market_cap", 1) or 1))
     vol_score = np.tanh(vol_ratio * 1e3)
 
     # Weighted combination
