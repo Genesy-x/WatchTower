@@ -4,7 +4,7 @@ from app.data import fetch_market_data
 from app.indicators import compute_indicators
 from app.strategies.universal_rs import compute_relative_strength, rotate_equity, compute_metrics
 from app.tournament import run_tournament
-from app.db.database import SessionLocal, BacktestRun, OHLCVData  # Corrected import
+from app.db.database import SessionLocal, BacktestRun, OHLCVData
 from datetime import datetime
 import pandas as pd
 import numpy as np
@@ -70,7 +70,9 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
                    use_gold: bool = True, benchmark: str = "BTC", timeframe: str = "1d"):
     try:
         # Run tournament to score assets
-        tournament_results = run_tournament(ALL_ASSETS[:used_assets + 1])  # Include GOLD
+        tournament_results = run_tournament(ALL_ASSETS[:used_assets + 1])
+        if not tournament_results:
+            return {"error": "No tournament results available"}
         assets_data = {}
         top_assets = [result["symbol"] for result in tournament_results[:used_assets]]
         for symbol, _ in ALL_ASSETS[:used_assets + 1]:
@@ -101,12 +103,12 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
             bh_equity = pd.Series(1.0, index=equity_filtered.index)
 
         # Asset table (tournament-style with equities)
-        asset_table = tournament_results[:used_assets + 1]  # Include top assets + GOLD
+        asset_table = tournament_results[:used_assets + 1]
         for asset in asset_table:
             symbol = asset["symbol"].replace("USDT", "")
             if symbol in assets_data:
                 equity = (1 + assets_data[symbol]["close"].pct_change()).cumprod().fillna(1)
-                asset["equity"] = round(equity.iloc[-1], 2)  # Multiplier from start
+                asset["equity"] = round(equity.iloc[-1], 2)
 
         # Top 3 from tournament
         top3 = [result["symbol"].replace("USDT", "") for result in tournament_results[:3]]
@@ -160,6 +162,8 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
     try:
         # Run tournament for live rebalance
         tournament_results = run_tournament(ALL_ASSETS[:used_assets + 1])
+        if not tournament_results:
+            return {"error": "No tournament results available"}
         assets_data = {}
         top_assets = [result["symbol"] for result in tournament_results[:used_assets]]
         for symbol, _ in ALL_ASSETS[:used_assets + 1]:

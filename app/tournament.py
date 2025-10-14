@@ -13,19 +13,33 @@ def run_tournament(assets):
     for symbol, cg_id in assets:
         print(f"⚙️  Processing {symbol}...")
         try:
-            data = fetch_market_data(symbol, cg_id)
+            data = fetch_market_data(symbol, "1d", 700)
             df = compute_indicators(data["ohlcv"])
-            score = score_coin(df, data["fundamentals"])
+            # Mock fundamentals since CoinDesk doesn't provide them
+            fundamentals = {
+                "name": symbol.replace("USDT", ""),
+                "price": df["close"].iloc[-1] if not df.empty and len(df) > 1 else 0,
+                "market_cap": 0,  # Placeholder, adjust if available
+                "volume_24h": df["volume"].iloc[-1] if not df.empty and len(df) > 1 else 0
+            }
+            score = score_coin(df, fundamentals)
             results.append({
                 "symbol": symbol,
-                "name": data["fundamentals"]["name"],
+                "name": fundamentals["name"],
                 "score": score,
-                "price": data["fundamentals"]["price"],
-                "market_cap": data["fundamentals"]["market_cap"],
+                "price": fundamentals["price"],
+                "market_cap": fundamentals["market_cap"],
             })
-            time.sleep(1)  # avoid rate limits
+            time.sleep(1)  # Avoid rate limits
         except Exception as e:
             print(f"❌ {symbol} failed: {e}")
+            results.append({
+                "symbol": symbol,
+                "name": symbol.replace("USDT", ""),
+                "score": 0.0,
+                "price": 0,
+                "market_cap": 0
+            })  # Add default entry to avoid empty results
 
     # Sort by score descending
     results = sorted(results, key=lambda x: x["score"], reverse=True)
