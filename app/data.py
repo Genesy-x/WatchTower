@@ -130,10 +130,10 @@ def fetch_historical_ohlc_sol(start: str = "2024-01-01", end: str = datetime.now
     return pd.DataFrame()
 
 def fetch_historical_ohlc_xaut(start: str = "2024-01-01", end: str = datetime.now().strftime("%Y-%m-%d"), limit: int = 700, aggregate: int = 1):
-    """Fetch daily historical OHLCV data for XAUT-USDT on Kraken."""
+    """Fetch daily historical OHLCV data for PAXG-USDT on Binance."""
     params = {
-        "market": "kraken",
-        "instrument": "XAUT-USDT",
+        "market": "binance",
+        "instrument": "PAXG-USDT",
         "start": start,
         "end": end,
         "limit": limit,
@@ -153,7 +153,7 @@ def fetch_historical_ohlc_xaut(start: str = "2024-01-01", end: str = datetime.no
             json_data = response.json()
             data_list = json_data.get("Data", [])
             if not data_list:
-                print(f"[WARNING] Empty data for XAUT-USDT, attempt {attempt+1}")
+                print(f"[WARNING] Empty data for PAXG-USDT, attempt {attempt+1}")
                 time.sleep(2)
                 continue
             df = pd.DataFrame(data_list)
@@ -162,12 +162,12 @@ def fetch_historical_ohlc_xaut(start: str = "2024-01-01", end: str = datetime.no
             df = df[df.index >= pd.Timestamp("2024-01-01")]
             df = df[["OPEN", "HIGH", "LOW", "CLOSE", "VOLUME"]]
             df.columns = ["open", "high", "low", "close", "volume"]
-            print(f"[SUCCESS] Fetched {len(df)} rows for XAUT-USDT from {df.index.min().date()} to {df.index.max().date()}")
+            print(f"[SUCCESS] Fetched {len(df)} rows for PAXG-USDT from {df.index.min().date()} to {df.index.max().date()}")
             return df
         except Exception as e:
-            print(f"[ERROR] Fetching CoinDesk OHLC for XAUT-USDT (attempt {attempt+1}): {e}")
+            print(f"[ERROR] Fetching CoinDesk OHLC for PAXG-USDT (attempt {attempt+1}): {e}")
             time.sleep(2)
-    print("[ERROR] Failed to fetch XAUT-USDT after retries")
+    print("[ERROR] Failed to fetch PAXG-USDT after retries")
     return pd.DataFrame()
 
 def fetch_market_data(binance_symbol: str, timeframe: str = "1d", limit: int = 700):
