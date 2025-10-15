@@ -5,7 +5,7 @@ from app.indicators import compute_indicators
 from app.strategies.universal_rs import compute_relative_strength, rotate_equity, compute_metrics
 from app.tournament import run_tournament
 from app.db.database import SessionLocal, BacktestRun, OHLCVData
-from app.equity import compute_equity  # Use the full equity function
+from app.equity import compute_equity
 from datetime import datetime
 import pandas as pd
 import numpy as np
@@ -41,7 +41,7 @@ def fetch_and_store_raw_data(assets=ALL_ASSETS, timeframe: str = "1d", limit: in
             market_data = fetch_market_data(name, timeframe, limit)
             ohlcv = market_data["ohlcv"]
             instrument = name.replace("USDT", "")
-            print(f"Storing OHLCV for {instrument}: {ohlcv.head()}")
+            print(f"Attempting to store {len(ohlcv)} rows for {instrument}")
             for index, row in ohlcv.iterrows():
                 existing = db.query(OHLCVData).filter(
                     OHLCVData.instrument == instrument,
@@ -58,8 +58,9 @@ def fetch_and_store_raw_data(assets=ALL_ASSETS, timeframe: str = "1d", limit: in
                         volume=row['volume']
                     )
                     db.add(record)
-        db.commit()
-        print("Data committed to Neon database")
+                    print(f"Added record for {instrument} at {index}")
+            db.commit()
+            print(f"Successfully committed {len(ohlcv)} rows for {instrument} to Neon")
     except Exception as e:
         print(f"[ERROR] Failed to store data in Neon: {e}")
         db.rollback()
@@ -102,7 +103,7 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
         metrics_filtered = compute_metrics(equity_filtered)
 
         # Generate signal from allocation history for strategy equity
-        strategy_df = assets_data[top_assets[0]]  # Use top asset as base (simplified)
+        strategy_df = assets_data[top_assets[0]]  # Use top asset as base
         strategy_df["signal"] = 0
         for date, alloc in alloc_hist_filtered.items():
             if date in strategy_df.index:
