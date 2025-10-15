@@ -87,6 +87,12 @@ async def store_sol():
     db.close()
     return {"status": "SOL data stored" if success else "Failed to store SOL data"}
 
+@app.get("/store-paxg")
+async def store_paxg():
+    db = SessionLocal()
+    success = store_single_asset(db, "PAXGUSDT")
+    db.close()
+    return {"status": "PAXG data stored" if success else "Failed to store PAXG data"}
 
 @app.get("/backtest")
 async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets: int = 3,
