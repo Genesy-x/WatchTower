@@ -12,6 +12,9 @@ import numpy as np
 from apscheduler.schedulers.background import BackgroundScheduler
 import os
 import uvicorn
+from sqlalchemy import create_engine
+from sqlalchemy.exc import OperationalError
+import time
 
 app = FastAPI(title="WatchTower Backend", version="0.1.0")
 
@@ -28,7 +31,7 @@ ALL_ASSETS = [
     ("BTCUSDT", "bitcoin"),
     ("ETHUSDT", "ethereum"),
     ("SOLUSDT", "solana"),
-    ("PAXGUSDT", "pax-gold")
+    ("PAXGUSDT", "pax-gold")  # Updated to PAXGUSDT
 ]
 
 def store_single_asset(db, name, timeframe: str = "1d", limit: int = 1):
@@ -36,7 +39,7 @@ def store_single_asset(db, name, timeframe: str = "1d", limit: int = 1):
         market_data = fetch_market_data(name, timeframe, limit)
         ohlcv = market_data["ohlcv"]
         instrument = name.replace("USDT", "")
-        print(f"Storing OHLCV for {instrument}: {ohlcv.head()}")
+        print(f"Attempting to store for {instrument}: {ohlcv.head() if not ohlcv.empty else 'No new data'}")
         if not ohlcv.empty:
             for index, row in ohlcv.iterrows():
                 existing = db.query(OHLCVData).filter(
@@ -63,6 +66,30 @@ def store_single_asset(db, name, timeframe: str = "1d", limit: int = 1):
         print(f"[ERROR] Failed to store {instrument}: {e}")
         db.rollback()
         return False
+
+def query_neon_with_retry(instrument, max_retries=3, delay=5):
+    """Query Neon with retries for SSL issues."""
+    db = SessionLocal()
+    for attempt in range(max_retries):
+        try:
+            print(f"[DEBUG] Querying Neon for {instrument}, attempt {attempt + 1}")
+            query = db.query(OHLCVData).filter(OHLCVData.instrument == instrument).order_by(OHLCVData.timestamp).all()
+            if query:
+                df = pd.DataFrame([(q.timestamp, q.open, q.high, q.low, q.close, q.volume) for q in query],
+                                columns=["timestamp", "open", "high", "low", "close", "volume"])
+                df.set_index("timestamp", inplace=True)
+                print(f"[DEBUG] Successfully queried {len(df)} rows for {instrument}")
+                return df
+            print(f"[WARNING] No data found for {instrument}")
+            return pd.DataFrame()
+        except OperationalError as e:
+            print(f"[ERROR] Neon query failed for {instrument} (attempt {attempt + 1}): {e}")
+            if attempt < max_retries - 1:
+                time.sleep(delay)
+                continue
+            return pd.DataFrame()
+        finally:
+            db.close()
 
 @app.get("/")
 async def root():
@@ -91,34 +118,29 @@ async def store_sol():
     db.close()
     return {"status": "SOL data stored" if success else "Failed to store SOL data"}
 
-@app.get("/store-xaut")
-async def store_xaut():
+@app.get("/store-paxg")
+async def store_paxg():
     db = SessionLocal()
     success = store_single_asset(db, "PAXGUSDT")
     db.close()
-    return {"status": "XAUT data stored" if success else "Failed to store XAUT data"}
+    return {"status": "PAXG data stored" if success else "Failed to store PAXG data"}
 
 @app.get("/backtest")
 async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets: int = 3,
                    use_gold: bool = True, benchmark: str = "BTC", timeframe: str = "1d"):
     try:
-        # Fetch data from Neon (implement a query function if needed)
-        db = SessionLocal()
+        # Fetch data from Neon with retry
         assets_data = {}
         for symbol, _ in ALL_ASSETS[:used_assets + 1]:
             instrument = symbol.replace("USDT", "")
-            query = db.query(OHLCVData).filter(OHLCVData.instrument == instrument).order_by(OHLCVData.timestamp).all()
-            if query:
-                df = pd.DataFrame([(q.timestamp, q.open, q.high, q.low, q.close, q.volume) for q in query],
-                                columns=["timestamp", "open", "high", "low", "close", "volume"])
-                df.set_index("timestamp", inplace=True)
+            df = query_neon_with_retry(instrument)
+            if not df.empty:
                 assets_data[instrument] = compute_indicators(df)
-        db.close()
 
         if not assets_data:
             return {"error": "No data available in Neon"}
 
-        gold_data = assets_data.get("XAUT", pd.DataFrame())
+        gold_data = assets_data.get("PAXG", pd.DataFrame())  # Updated to PAXG
         if gold_data.empty and use_gold:
             market_data = fetch_market_data("PAXGUSDT", timeframe, limit)
             gold_data = compute_indicators(market_data["ohlcv"])
@@ -149,7 +171,7 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
             benchmark_df, benchmark_metrics = compute_equity(benchmark_df)
 
         # Asset table with equity from compute_equity
-        asset_table = [{"symbol": f"{k}USDT", "score": 0} for k in top_assets[:used_assets] + (["XAUT"] if use_gold else [])]
+        asset_table = [{"symbol": f"{k}USDT", "score": 0} for k in top_assets + (["PAXG"] if use_gold else [])]
         for asset in asset_table:
             symbol = asset["symbol"].replace("USDT", "")
             if symbol in assets_data:
@@ -201,23 +223,18 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
 @app.get("/rebalance")
 async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str = "1d", limit: int = 1):
     try:
-        # Fetch data from Neon
-        db = SessionLocal()
+        # Fetch data from Neon with retry
         assets_data = {}
         for symbol, _ in ALL_ASSETS[:used_assets + 1]:
             instrument = symbol.replace("USDT", "")
-            query = db.query(OHLCVData).filter(OHLCVData.instrument == instrument).order_by(OHLCVData.timestamp).all()
-            if query:
-                df = pd.DataFrame([(q.timestamp, q.open, q.high, q.low, q.close, q.volume) for q in query],
-                                columns=["timestamp", "open", "high", "low", "close", "volume"])
-                df.set_index("timestamp", inplace=True)
+            df = query_neon_with_retry(instrument)
+            if not df.empty:
                 assets_data[instrument] = compute_indicators(df)
-        db.close()
 
         if not assets_data:
             return {"error": "No data available in Neon"}
 
-        gold_data = assets_data.get("XAUT", pd.DataFrame())
+        gold_data = assets_data.get("PAXG", pd.DataFrame())  # Updated to PAXG
         if gold_data.empty and use_gold:
             market_data = fetch_market_data("PAXGUSDT", timeframe, limit)
             gold_data = compute_indicators(market_data["ohlcv"])
@@ -236,7 +253,7 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
                 rebalance_df.loc[date, "signal"] = 1 if alloc != "CASH" else 0
         rebalance_df, rebalance_metrics = compute_equity(rebalance_df)
 
-        asset_table = [{"symbol": f"{k}USDT", "score": 0} for k in top_assets + (["XAUT"] if use_gold else [])]
+        asset_table = [{"symbol": f"{k}USDT", "score": 0} for k in top_assets + (["PAXG"] if use_gold else [])]
         for asset in asset_table:
             symbol = asset["symbol"].replace("USDT", "")
             if symbol in assets_data:

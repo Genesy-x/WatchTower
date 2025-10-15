@@ -142,13 +142,13 @@ def fetch_historical_ohlc_sol(start: str = None, end: str = datetime.now().strft
     print("[ERROR] Failed to fetch SOL-USDT after retries")
     return pd.DataFrame()
 
-def fetch_historical_ohlc_paxg(start: str = None, end: str = datetime.now().strftime("%Y-%m-%d"), limit: int = 1, aggregate: int = 1):
+def fetch_historical_ohlc_xaut(start: str = None, end: str = datetime.now().strftime("%Y-%m-%d"), limit: int = 1, aggregate: int = 1):
     """Fetch latest daily OHLCV data for PAXG-USDT on Binance."""
     instrument = "PAXG"
     start = (get_latest_timestamp(instrument) + pd.Timedelta(days=1)).strftime("%Y-%m-%d") if start is None else start
     params = {
         "market": "binance",
-        "instrument": "PAXG-USDT",
+        "instrument": "PAXG-USDT",  # Updated to PAXG-USDT
         "start": start,
         "end": end,
         "limit": limit,
@@ -192,7 +192,7 @@ def fetch_market_data(binance_symbol: str, timeframe: str = "1d", limit: int = 1
         "BTCUSDT": fetch_historical_ohlc_btc,
         "ETHUSDT": fetch_historical_ohlc_eth,
         "SOLUSDT": fetch_historical_ohlc_sol,
-        "PAXGUSDT": fetch_historical_ohlc_paxg
+        "PAXGUSDT": fetch_historical_ohlc_xaut  # Updated to PAXGUSDT
     }
     fetch_func = instrument_map.get(binance_symbol)
     if not fetch_func:
