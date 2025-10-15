@@ -10,6 +10,7 @@ import pandas as pd
 import numpy as np
 from apscheduler.schedulers.background import BackgroundScheduler
 import os
+import uvicorn
 
 app = FastAPI(title="WatchTower Backend", version="0.1.0")
 
@@ -34,30 +35,35 @@ def fetch_and_store_raw_data(assets=ALL_ASSETS, timeframe: str = "1d", limit: in
     Fetch and store raw OHLCV data for assets in the database.
     """
     db = SessionLocal()
-    for name, _ in assets:
-        market_data = fetch_market_data(name, timeframe, limit)
-        ohlcv = market_data["ohlcv"]
-        symbol = name.replace("USDT", "")
-        print(f"Storing OHLCV for {symbol}: {ohlcv.head()}")
-        for index, row in ohlcv.iterrows():
-            existing = db.query(OHLCVData).filter(
-                OHLCVData.symbol == symbol,
-                OHLCVData.timestamp == index
-            ).first()
-            if not existing:
-                record = OHLCVData(
-                    symbol=symbol,
-                    timestamp=index,
-                    open=row['open'],
-                    high=row['high'],
-                    low=row['low'],
-                    close=row['close'],
-                    volume=row['volume']
-                )
-                db.add(record)
-    db.commit()
-    print("Data committed to Neon database")
-    db.close()
+    try:
+        for name, _ in assets:
+            market_data = fetch_market_data(name, timeframe, limit)
+            ohlcv = market_data["ohlcv"]
+            symbol = name.replace("USDT", "")
+            print(f"Storing OHLCV for {symbol}: {ohlcv.head()}")
+            for index, row in ohlcv.iterrows():
+                existing = db.query(OHLCVData).filter(
+                    OHLCVData.symbol == symbol,
+                    OHLCVData.timestamp == index
+                ).first()
+                if not existing:
+                    record = OHLCVData(
+                        symbol=symbol,
+                        timestamp=index,
+                        open=row['open'],
+                        high=row['high'],
+                        low=row['low'],
+                        close=row['close'],
+                        volume=row['volume']
+                    )
+                    db.add(record)
+        db.commit()
+        print("Data committed to Neon database")
+    except Exception as e:
+        print(f"[ERROR] Failed to store data in Neon: {e}")
+        db.rollback()
+    finally:
+        db.close()
 
 @app.get("/")
 async def root():
@@ -198,6 +204,5 @@ scheduler = BackgroundScheduler()
 scheduler.add_job(scheduled_rebalance, 'interval', days=1)
 scheduler.start()
 
-import uvicorn
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)  # Default FastAPI port
+    uvicorn.run(app, host="0.0.0.0", port=8000)
