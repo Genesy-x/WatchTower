@@ -43,6 +43,7 @@ def fetch_and_store_raw_data(assets=ALL_ASSETS, timeframe: str = "1d", limit: in
             instrument = name.replace("USDT", "")
             print(f"Attempting to store {len(ohlcv)} rows for {instrument}")
             for index, row in ohlcv.iterrows():
+                # Convert NumPy types to Python types
                 existing = db.query(OHLCVData).filter(
                     OHLCVData.instrument == instrument,
                     OHLCVData.timestamp == index
@@ -50,12 +51,12 @@ def fetch_and_store_raw_data(assets=ALL_ASSETS, timeframe: str = "1d", limit: in
                 if not existing:
                     record = OHLCVData(
                         instrument=instrument,
-                        timestamp=index,
-                        open=row['open'],
-                        high=row['high'],
-                        low=row['low'],
-                        close=row['close'],
-                        volume=row['volume']
+                        timestamp=index.to_pydatetime(),  # Convert Timestamp to datetime
+                        open=float(row['open']),  # Convert np.float64 to float
+                        high=float(row['high']),
+                        low=float(row['low']),
+                        close=float(row['close']),
+                        volume=float(row['volume'])
                     )
                     db.add(record)
                     print(f"Added record for {instrument} at {index}")
