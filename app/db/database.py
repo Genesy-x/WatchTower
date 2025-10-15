@@ -23,7 +23,7 @@ class BacktestRun(Base):
 class OHLCVData(Base):
     __tablename__ = "ohlcv_data"
     id = Column(Integer, primary_key=True, index=True)
-    symbol = Column(String, index=True)
+    instrument = Column(String, index=True)  # Changed to match Neon table
     timestamp = Column(DateTime, index=True)
     open = Column(Float)
     high = Column(Float)
@@ -33,4 +33,3 @@ class OHLCVData(Base):
 
 # Create tables if not exist
 Base.metadata.create_all(bind=engine)
-print(f"Database tables created or verified at {DATABASE_URL}")  # Debug

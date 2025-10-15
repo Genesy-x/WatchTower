@@ -5,6 +5,7 @@ from app.indicators import compute_indicators
 from app.strategies.universal_rs import compute_relative_strength, rotate_equity, compute_metrics
 from app.tournament import run_tournament
 from app.db.database import SessionLocal, BacktestRun, OHLCVData
+from app.equity import compute_equity  # Use the full equity function
 from datetime import datetime
 import pandas as pd
 import numpy as np
@@ -39,16 +40,16 @@ def fetch_and_store_raw_data(assets=ALL_ASSETS, timeframe: str = "1d", limit: in
         for name, _ in assets:
             market_data = fetch_market_data(name, timeframe, limit)
             ohlcv = market_data["ohlcv"]
-            symbol = name.replace("USDT", "")
-            print(f"Storing OHLCV for {symbol}: {ohlcv.head()}")
+            instrument = name.replace("USDT", "")
+            print(f"Storing OHLCV for {instrument}: {ohlcv.head()}")
             for index, row in ohlcv.iterrows():
                 existing = db.query(OHLCVData).filter(
-                    OHLCVData.symbol == symbol,
+                    OHLCVData.instrument == instrument,
                     OHLCVData.timestamp == index
                 ).first()
                 if not existing:
                     record = OHLCVData(
-                        symbol=symbol,
+                        instrument=instrument,
                         timestamp=index,
                         open=row['open'],
                         high=row['high'],
@@ -87,7 +88,8 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
             if ohlcv.empty:
                 print(f"Empty OHLCV for {symbol}")
                 continue
-            assets_data[symbol.replace("USDT", "")] = compute_indicators(ohlcv)
+            indicators_df = compute_indicators(ohlcv)
+            assets_data[symbol.replace("USDT", "")] = indicators_df
 
         gold_market = fetch_market_data("PAXGUSDT", timeframe, limit)
         gold_data = compute_indicators(gold_market["ohlcv"])
@@ -99,18 +101,33 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
         )
         metrics_filtered = compute_metrics(equity_filtered)
 
-        if benchmark in assets_data:
-            bh_returns = assets_data[benchmark]["close"].pct_change().fillna(0)
-            bh_equity = (1 + bh_returns).cumprod().reindex(equity_filtered.index).fillna(1)
-        else:
-            bh_equity = pd.Series(1.0, index=equity_filtered.index)
+        # Generate signal from allocation history for strategy equity
+        strategy_df = assets_data[top_assets[0]]  # Use top asset as base (simplified)
+        strategy_df["signal"] = 0
+        for date, alloc in alloc_hist_filtered.items():
+            if date in strategy_df.index:
+                strategy_df.loc[date, "signal"] = 1 if alloc != "CASH" else 0
+        strategy_df, strategy_metrics = compute_equity(strategy_df)
 
+        # Benchmark equity
+        if benchmark in assets_data:
+            benchmark_df = assets_data[benchmark]
+            benchmark_df["signal"] = 1  # Always invested for buy-and-hold
+            benchmark_df, benchmark_metrics = compute_equity(benchmark_df)
+        else:
+            benchmark_df = pd.DataFrame(index=strategy_df.index, data={"close": 1.0})
+            benchmark_df["signal"] = 1
+            benchmark_df, benchmark_metrics = compute_equity(benchmark_df)
+
+        # Asset table with equity from compute_equity
         asset_table = tournament_results[:used_assets + 1]
         for asset in asset_table:
             symbol = asset["symbol"].replace("USDT", "")
             if symbol in assets_data:
-                equity = (1 + assets_data[symbol]["close"].pct_change()).cumprod().fillna(1)
-                asset["equity"] = round(equity.iloc[-1], 2)
+                asset_df = assets_data[symbol]
+                asset_df["signal"] = 1  # Buy-and-hold for each asset
+                _, asset_metrics = compute_equity(asset_df)
+                asset["equity"] = asset_metrics["final_equity"]
 
         top3 = [result["symbol"].replace("USDT", "") for result in tournament_results[:3]]
         current_alloc = alloc_hist_filtered[-1] if alloc_hist_filtered else "CASH"
@@ -118,30 +135,30 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
         metrics_table = {
             **metrics_filtered,
             "PositionChanges": switches_filtered,
-            "EquityMaxDD": metrics_filtered["MaxDD"],
-            "NetProfit": metrics_filtered["NetProfit"]
+            "EquityMaxDD": strategy_metrics["max_drawdown_%"],
+            "NetProfit": strategy_metrics["total_return_%"]
         }
 
         response = {
             "metrics": metrics_table,
-            "final_equity_filtered": equity_filtered.iloc[-1],
+            "final_equity_filtered": strategy_df["equity"].iloc[-1],
             "switches": switches_filtered,
             "current_allocation": current_alloc,
             "top3": top3,
             "asset_table": asset_table,
-            "equity_curve_filtered": equity_filtered.to_dict(),
-            "buy_hold_equity": bh_equity.to_dict()
+            "equity_curve_filtered": strategy_df["equity"].to_dict(),
+            "buy_hold_equity": benchmark_df["bh_equity"].to_dict()
         }
 
-        equity_filtered.index = equity_filtered.index.astype(str)
+        strategy_df.index = strategy_df.index.astype(str)
 
         fetch_and_store_raw_data()
         db = SessionLocal()
         run = BacktestRun(
             start_date=pd.to_datetime(start_date).to_pydatetime(),
-            end_date=equity_filtered.index[-1],
+            end_date=strategy_df.index[-1],
             metrics=metrics_table,
-            equity_curve=equity_filtered.to_dict(),
+            equity_curve=strategy_df["equity"].to_dict(),
             alloc_hist=alloc_hist_filtered,
             switches=switches_filtered
         )
@@ -174,12 +191,22 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
             rs_data, {k: v for k, v in assets_data.items() if k in top_assets}, gold_data, use_gold=use_gold
         )
 
+        # Generate signal for rebalance equity
+        rebalance_df = assets_data[top_assets[0]]  # Use top asset as base
+        rebalance_df["signal"] = 0
+        for date, alloc in alloc_hist.items():
+            if date in rebalance_df.index:
+                rebalance_df.loc[date, "signal"] = 1 if alloc != "CASH" else 0
+        rebalance_df, rebalance_metrics = compute_equity(rebalance_df)
+
         asset_table = tournament_results[:used_assets + 1]
         for asset in asset_table:
             symbol = asset["symbol"].replace("USDT", "")
             if symbol in assets_data:
-                equity = (1 + assets_data[symbol]["close"].pct_change()).cumprod().fillna(1)
-                asset["equity"] = round(equity.iloc[-1], 2)
+                asset_df = assets_data[symbol]
+                asset_df["signal"] = 1  # Buy-and-hold for each asset
+                _, asset_metrics = compute_equity(asset_df)
+                asset["equity"] = asset_metrics["final_equity"]
 
         top3 = [result["symbol"].replace("USDT", "") for result in tournament_results[:3]]
         current_alloc = alloc_hist[-1]
@@ -188,11 +215,16 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
             "current_allocation": current_alloc,
             "top3": top3,
             "asset_table": asset_table,
-            "latest_equity": equity_filtered.iloc[-1],
+            "latest_equity": rebalance_df["equity"].iloc[-1],
             "switches": switches
         }
     except Exception as e:
         return {"error": str(e)}
+
+@app.get("/store-data")
+async def store_data():
+    fetch_and_store_raw_data()
+    return {"status": "Data stored"}
 
 # Scheduler for daily rebalancing
 def scheduled_rebalance():

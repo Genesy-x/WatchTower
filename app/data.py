@@ -6,13 +6,13 @@ from datetime import datetime
 COINDESK_API_KEY = "74e1e197fe44b98d6c1cfd466095fa9fa4c2a57edea008936b2ac1d5ad5167d1"  # Replace if needed
 COINDESK_BASE = "https://data-api.coindesk.com/spot/v1/historical/days"
 
-def fetch_historical_ohlc_btc(start: str = "2024-01-01", end: str = "2025-10-14", limit: int = 700, aggregate: int = 1):
+def fetch_historical_ohlc_btc(start: str = "2024-01-01", end: str = datetime.now().strftime("%Y-%m-%d"), limit: int = 700, aggregate: int = 1):
     """Fetch daily historical OHLCV data for BTC-USDT on Binance."""
     params = {
         "market": "binance",
         "instrument": "BTC-USDT",
         "start": start,
-        "end": end,  # Explicitly set end date
+        "end": end,
         "limit": limit,
         "aggregate": aggregate,
         "fill": "true",
@@ -36,7 +36,6 @@ def fetch_historical_ohlc_btc(start: str = "2024-01-01", end: str = "2025-10-14"
             df = pd.DataFrame(data_list)
             df["timestamp"] = pd.to_datetime(df["TIMESTAMP"], unit="s")
             df.set_index("timestamp", inplace=True)
-            # Filter out dates before 2024-01-01
             df = df[df.index >= pd.Timestamp("2024-01-01")]
             df = df[["OPEN", "HIGH", "LOW", "CLOSE", "VOLUME"]]
             df.columns = ["open", "high", "low", "close", "volume"]
@@ -48,7 +47,7 @@ def fetch_historical_ohlc_btc(start: str = "2024-01-01", end: str = "2025-10-14"
     print("[ERROR] Failed to fetch BTC-USDT after retries")
     return pd.DataFrame()
 
-def fetch_historical_ohlc_eth(start: str = "2024-01-01", end: str = "2025-10-14", limit: int = 700, aggregate: int = 1):
+def fetch_historical_ohlc_eth(start: str = "2024-01-01", end: str = datetime.now().strftime("%Y-%m-%d"), limit: int = 700, aggregate: int = 1):
     """Fetch daily historical OHLCV data for ETH-USDT on Binance."""
     params = {
         "market": "binance",
@@ -89,7 +88,7 @@ def fetch_historical_ohlc_eth(start: str = "2024-01-01", end: str = "2025-10-14"
     print("[ERROR] Failed to fetch ETH-USDT after retries")
     return pd.DataFrame()
 
-def fetch_historical_ohlc_sol(start: str = "2024-01-01", end: str = "2025-10-14", limit: int = 700, aggregate: int = 1):
+def fetch_historical_ohlc_sol(start: str = "2024-01-01", end: str = datetime.now().strftime("%Y-%m-%d"), limit: int = 700, aggregate: int = 1):
     """Fetch daily historical OHLCV data for SOL-USDT on Binance."""
     params = {
         "market": "binance",
@@ -130,7 +129,7 @@ def fetch_historical_ohlc_sol(start: str = "2024-01-01", end: str = "2025-10-14"
     print("[ERROR] Failed to fetch SOL-USDT after retries")
     return pd.DataFrame()
 
-def fetch_historical_ohlc_xaut(start: str = "2024-01-01", end: str = "2025-10-14", limit: int = 700, aggregate: int = 1):
+def fetch_historical_ohlc_xaut(start: str = "2024-01-01", end: str = datetime.now().strftime("%Y-%m-%d"), limit: int = 700, aggregate: int = 1):
     """Fetch daily historical OHLCV data for XAUT-USDT on Kraken."""
     params = {
         "market": "kraken",
