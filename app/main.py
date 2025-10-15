@@ -37,7 +37,7 @@ def fetch_and_store_raw_data(assets=ALL_ASSETS, timeframe: str = "1d", limit: in
     for name, _ in assets:
         market_data = fetch_market_data(name, timeframe, limit)
         ohlcv = market_data["ohlcv"]
-        symbol = name.replace("USDT", "")  # Store as BTC, ETH, SOL, GOLD
+        symbol = name.replace("USDT", "")
         print(f"Storing OHLCV for {symbol}: {ohlcv.head()}")
         for index, row in ohlcv.iterrows():
             existing = db.query(OHLCVData).filter(
@@ -69,7 +69,6 @@ async def root():
 async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets: int = 3,
                    use_gold: bool = True, benchmark: str = "BTC", timeframe: str = "1d"):
     try:
-        # Run tournament to score assets
         tournament_results = run_tournament(ALL_ASSETS[:used_assets + 1])
         if not tournament_results:
             return {"error": "No tournament results available"}
@@ -88,21 +87,18 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
         gold_data = compute_indicators(gold_market["ohlcv"])
         print(f"Raw OHLCV for GOLD: {gold_market['ohlcv'].head()}")
 
-        # Use tournament top assets for RS
         rs_data = compute_relative_strength({k: v for k, v in assets_data.items() if k in top_assets}, filtered=True)
         equity_filtered, alloc_hist_filtered, switches_filtered = rotate_equity(
             rs_data, {k: v for k, v in assets_data.items() if k in top_assets}, gold_data, start_date=start_date, use_gold=use_gold
         )
         metrics_filtered = compute_metrics(equity_filtered)
 
-        # Buy & Hold for benchmark
         if benchmark in assets_data:
             bh_returns = assets_data[benchmark]["close"].pct_change().fillna(0)
             bh_equity = (1 + bh_returns).cumprod().reindex(equity_filtered.index).fillna(1)
         else:
             bh_equity = pd.Series(1.0, index=equity_filtered.index)
 
-        # Asset table (tournament-style with equities)
         asset_table = tournament_results[:used_assets + 1]
         for asset in asset_table:
             symbol = asset["symbol"].replace("USDT", "")
@@ -110,13 +106,9 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
                 equity = (1 + assets_data[symbol]["close"].pct_change()).cumprod().fillna(1)
                 asset["equity"] = round(equity.iloc[-1], 2)
 
-        # Top 3 from tournament
         top3 = [result["symbol"].replace("USDT", "") for result in tournament_results[:3]]
-
-        # Current allocation
         current_alloc = alloc_hist_filtered[-1] if alloc_hist_filtered else "CASH"
 
-        # Metrics table
         metrics_table = {
             **metrics_filtered,
             "PositionChanges": switches_filtered,
@@ -135,10 +127,8 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
             "buy_hold_equity": bh_equity.to_dict()
         }
 
-        # Convert index to str for JSON serialization
         equity_filtered.index = equity_filtered.index.astype(str)
 
-        # Store raw data and results
         fetch_and_store_raw_data()
         db = SessionLocal()
         run = BacktestRun(
@@ -160,7 +150,6 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
 @app.get("/rebalance")
 async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str = "1d", limit: int = 700):
     try:
-        # Run tournament for live rebalance
         tournament_results = run_tournament(ALL_ASSETS[:used_assets + 1])
         if not tournament_results:
             return {"error": "No tournament results available"}
@@ -179,7 +168,6 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
             rs_data, {k: v for k, v in assets_data.items() if k in top_assets}, gold_data, use_gold=use_gold
         )
 
-        # Asset table with live data
         asset_table = tournament_results[:used_assets + 1]
         for asset in asset_table:
             symbol = asset["symbol"].replace("USDT", "")
@@ -209,3 +197,7 @@ def scheduled_rebalance():
 scheduler = BackgroundScheduler()
 scheduler.add_job(scheduled_rebalance, 'interval', days=1)
 scheduler.start()
+
+import uvicorn
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)  # Default FastAPI port
