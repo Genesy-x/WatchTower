@@ -2,12 +2,24 @@ import requests
 import pandas as pd
 import time
 from datetime import datetime
+from app.db.database import SessionLocal, OHLCVData
 
 COINDESK_API_KEY = "74e1e197fe44b98d6c1cfd466095fa9fa4c2a57edea008936b2ac1d5ad5167d1"  # Replace if needed
 COINDESK_BASE = "https://data-api.coindesk.com/spot/v1/historical/days"
 
-def fetch_historical_ohlc_btc(start: str = "2024-01-01", end: str = datetime.now().strftime("%Y-%m-%d"), limit: int = 700, aggregate: int = 1):
-    """Fetch daily historical OHLCV data for BTC-USDT on Binance."""
+def get_latest_timestamp(instrument: str):
+    """Get the latest timestamp for an instrument from Neon."""
+    db = SessionLocal()
+    try:
+        latest = db.query(OHLCVData.timestamp).filter(OHLCVData.instrument == instrument).order_by(OHLCVData.timestamp.desc()).first()
+        return latest[0] if latest else pd.Timestamp("2024-01-01")
+    finally:
+        db.close()
+
+def fetch_historical_ohlc_btc(start: str = None, end: str = datetime.now().strftime("%Y-%m-%d"), limit: int = 1, aggregate: int = 1):
+    """Fetch latest daily OHLCV data for BTC-USDT on Binance."""
+    instrument = "BTC"
+    start = (get_latest_timestamp(instrument) + pd.Timedelta(days=1)).strftime("%Y-%m-%d") if start is None else start
     params = {
         "market": "binance",
         "instrument": "BTC-USDT",
@@ -30,16 +42,15 @@ def fetch_historical_ohlc_btc(start: str = "2024-01-01", end: str = datetime.now
             json_data = response.json()
             data_list = json_data.get("Data", [])
             if not data_list:
-                print(f"[WARNING] Empty data for BTC-USDT, attempt {attempt+1}")
+                print(f"[WARNING] No new data for BTC-USDT, attempt {attempt+1}")
                 time.sleep(2)
                 continue
             df = pd.DataFrame(data_list)
             df["timestamp"] = pd.to_datetime(df["TIMESTAMP"], unit="s")
             df.set_index("timestamp", inplace=True)
-            df = df[df.index >= pd.Timestamp("2024-01-01")]
             df = df[["OPEN", "HIGH", "LOW", "CLOSE", "VOLUME"]]
             df.columns = ["open", "high", "low", "close", "volume"]
-            print(f"[SUCCESS] Fetched {len(df)} rows for BTC-USDT from {df.index.min().date()} to {df.index.max().date()}")
+            print(f"[SUCCESS] Fetched {len(df)} new rows for BTC-USDT from {df.index.min().date()} to {df.index.max().date()}")
             return df
         except Exception as e:
             print(f"[ERROR] Fetching CoinDesk OHLC for BTC-USDT (attempt {attempt+1}): {e}")
@@ -47,8 +58,10 @@ def fetch_historical_ohlc_btc(start: str = "2024-01-01", end: str = datetime.now
     print("[ERROR] Failed to fetch BTC-USDT after retries")
     return pd.DataFrame()
 
-def fetch_historical_ohlc_eth(start: str = "2024-01-01", end: str = datetime.now().strftime("%Y-%m-%d"), limit: int = 700, aggregate: int = 1):
-    """Fetch daily historical OHLCV data for ETH-USDT on Binance."""
+def fetch_historical_ohlc_eth(start: str = None, end: str = datetime.now().strftime("%Y-%m-%d"), limit: int = 1, aggregate: int = 1):
+    """Fetch latest daily OHLCV data for ETH-USDT on Binance."""
+    instrument = "ETH"
+    start = (get_latest_timestamp(instrument) + pd.Timedelta(days=1)).strftime("%Y-%m-%d") if start is None else start
     params = {
         "market": "binance",
         "instrument": "ETH-USDT",
@@ -71,16 +84,15 @@ def fetch_historical_ohlc_eth(start: str = "2024-01-01", end: str = datetime.now
             json_data = response.json()
             data_list = json_data.get("Data", [])
             if not data_list:
-                print(f"[WARNING] Empty data for ETH-USDT, attempt {attempt+1}")
+                print(f"[WARNING] No new data for ETH-USDT, attempt {attempt+1}")
                 time.sleep(2)
                 continue
             df = pd.DataFrame(data_list)
             df["timestamp"] = pd.to_datetime(df["TIMESTAMP"], unit="s")
             df.set_index("timestamp", inplace=True)
-            df = df[df.index >= pd.Timestamp("2024-01-01")]
             df = df[["OPEN", "HIGH", "LOW", "CLOSE", "VOLUME"]]
             df.columns = ["open", "high", "low", "close", "volume"]
-            print(f"[SUCCESS] Fetched {len(df)} rows for ETH-USDT from {df.index.min().date()} to {df.index.max().date()}")
+            print(f"[SUCCESS] Fetched {len(df)} new rows for ETH-USDT from {df.index.min().date()} to {df.index.max().date()}")
             return df
         except Exception as e:
             print(f"[ERROR] Fetching CoinDesk OHLC for ETH-USDT (attempt {attempt+1}): {e}")
@@ -88,8 +100,10 @@ def fetch_historical_ohlc_eth(start: str = "2024-01-01", end: str = datetime.now
     print("[ERROR] Failed to fetch ETH-USDT after retries")
     return pd.DataFrame()
 
-def fetch_historical_ohlc_sol(start: str = "2024-01-01", end: str = datetime.now().strftime("%Y-%m-%d"), limit: int = 700, aggregate: int = 1):
-    """Fetch daily historical OHLCV data for SOL-USDT on Binance."""
+def fetch_historical_ohlc_sol(start: str = None, end: str = datetime.now().strftime("%Y-%m-%d"), limit: int = 1, aggregate: int = 1):
+    """Fetch latest daily OHLCV data for SOL-USDT on Binance."""
+    instrument = "SOL"
+    start = (get_latest_timestamp(instrument) + pd.Timedelta(days=1)).strftime("%Y-%m-%d") if start is None else start
     params = {
         "market": "binance",
         "instrument": "SOL-USDT",
@@ -112,16 +126,15 @@ def fetch_historical_ohlc_sol(start: str = "2024-01-01", end: str = datetime.now
             json_data = response.json()
             data_list = json_data.get("Data", [])
             if not data_list:
-                print(f"[WARNING] Empty data for SOL-USDT, attempt {attempt+1}")
+                print(f"[WARNING] No new data for SOL-USDT, attempt {attempt+1}")
                 time.sleep(2)
                 continue
             df = pd.DataFrame(data_list)
             df["timestamp"] = pd.to_datetime(df["TIMESTAMP"], unit="s")
             df.set_index("timestamp", inplace=True)
-            df = df[df.index >= pd.Timestamp("2024-01-01")]
             df = df[["OPEN", "HIGH", "LOW", "CLOSE", "VOLUME"]]
             df.columns = ["open", "high", "low", "close", "volume"]
-            print(f"[SUCCESS] Fetched {len(df)} rows for SOL-USDT from {df.index.min().date()} to {df.index.max().date()}")
+            print(f"[SUCCESS] Fetched {len(df)} new rows for SOL-USDT from {df.index.min().date()} to {df.index.max().date()}")
             return df
         except Exception as e:
             print(f"[ERROR] Fetching CoinDesk OHLC for SOL-USDT (attempt {attempt+1}): {e}")
@@ -129,8 +142,10 @@ def fetch_historical_ohlc_sol(start: str = "2024-01-01", end: str = datetime.now
     print("[ERROR] Failed to fetch SOL-USDT after retries")
     return pd.DataFrame()
 
-def fetch_historical_ohlc_paxg(start: str = "2024-01-01", end: str = datetime.now().strftime("%Y-%m-%d"), limit: int = 700, aggregate: int = 1):
-    """Fetch daily historical OHLCV data for PAXG-USDT on Binance."""
+def fetch_historical_ohlc_paxg(start: str = None, end: str = datetime.now().strftime("%Y-%m-%d"), limit: int = 1, aggregate: int = 1):
+    """Fetch latest daily OHLCV data for PAXG-USDT on Binance."""
+    instrument = "PAXG"
+    start = (get_latest_timestamp(instrument) + pd.Timedelta(days=1)).strftime("%Y-%m-%d") if start is None else start
     params = {
         "market": "binance",
         "instrument": "PAXG-USDT",
@@ -153,16 +168,15 @@ def fetch_historical_ohlc_paxg(start: str = "2024-01-01", end: str = datetime.no
             json_data = response.json()
             data_list = json_data.get("Data", [])
             if not data_list:
-                print(f"[WARNING] Empty data for PAXG-USDT, attempt {attempt+1}")
+                print(f"[WARNING] No new data for PAXG-USDT, attempt {attempt+1}")
                 time.sleep(2)
                 continue
             df = pd.DataFrame(data_list)
             df["timestamp"] = pd.to_datetime(df["TIMESTAMP"], unit="s")
             df.set_index("timestamp", inplace=True)
-            df = df[df.index >= pd.Timestamp("2024-01-01")]
             df = df[["OPEN", "HIGH", "LOW", "CLOSE", "VOLUME"]]
             df.columns = ["open", "high", "low", "close", "volume"]
-            print(f"[SUCCESS] Fetched {len(df)} rows for PAXG-USDT from {df.index.min().date()} to {df.index.max().date()}")
+            print(f"[SUCCESS] Fetched {len(df)} new rows for PAXG-USDT from {df.index.min().date()} to {df.index.max().date()}")
             return df
         except Exception as e:
             print(f"[ERROR] Fetching CoinDesk OHLC for PAXG-USDT (attempt {attempt+1}): {e}")
@@ -170,7 +184,7 @@ def fetch_historical_ohlc_paxg(start: str = "2024-01-01", end: str = datetime.no
     print("[ERROR] Failed to fetch PAXG-USDT after retries")
     return pd.DataFrame()
 
-def fetch_market_data(binance_symbol: str, timeframe: str = "1d", limit: int = 700):
+def fetch_market_data(binance_symbol: str, timeframe: str = "1d", limit: int = 1):
     """
     Fetch OHLCV for a single asset based on symbol, using specific fetch function.
     """
@@ -185,7 +199,7 @@ def fetch_market_data(binance_symbol: str, timeframe: str = "1d", limit: int = 7
         print(f"[ERROR] No fetch function for {binance_symbol}")
         return {"ohlcv": pd.DataFrame(), "fundamentals": {}}
     
-    ohlcv_df = fetch_func(limit=limit)
+    ohlcv_df = fetch_func()
     return {
         "ohlcv": ohlcv_df,
         "fundamentals": {}  # Empty, but needed for tournament
