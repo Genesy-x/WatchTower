@@ -220,12 +220,10 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
             "buy_hold_equity": benchmark_df["bh_equity"].to_dict() if not benchmark_df.empty else {}
         }
 
-        strategy_df.index = strategy_df.index.astype(str) if not strategy_df.empty else []
-
         db = SessionLocal()
         run = BacktestRun(
             start_date=pd.to_datetime(start_date).to_pydatetime(),
-            end_date=strategy_df.index[-1] if not strategy_df.empty else datetime.now(),
+            end_date=equity_filtered.index[-1].to_pydatetime() if not equity_filtered.empty else datetime.now(),
             metrics=metrics_table,
             equity_curve=strategy_df["equity"].to_dict() if not strategy_df.empty else {},
             alloc_hist={str(k): v for k, v in zip(equity_filtered.index, alloc_hist_filtered)},
