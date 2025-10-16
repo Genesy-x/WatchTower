@@ -136,14 +136,14 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
             df = query_neon_with_retry(instrument)
             if not df.empty:
                 assets_data[instrument] = compute_indicators(df)
-                print(f"[DEBUG] Processed {instrument} data: {df.head()}")
+                print(f"[DEBUG] Processed {instrument} data: {len(df)} rows")
 
         if not assets_data:
             return {"error": "No data available in Neon"}
 
-        # Run tournament to get top assets
+        # Run tournament to get top assets - PASS assets_data!
         print("[DEBUG] Running tournament...")
-        tournament_results = run_tournament(ALL_ASSETS[:used_assets + 1])
+        tournament_results = run_tournament(ALL_ASSETS[:used_assets + 1], assets_data=assets_data)
         print(f"[DEBUG] Tournament results: {tournament_results}")
 
         gold_data = assets_data.get("PAXG", pd.DataFrame())
@@ -220,10 +220,13 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
             "buy_hold_equity": benchmark_df["bh_equity"].to_dict() if not benchmark_df.empty else {}
         }
 
+        # Get end_date BEFORE any conversions
+        end_date = equity_filtered.index[-1].to_pydatetime() if not equity_filtered.empty else datetime.now()
+
         db = SessionLocal()
         run = BacktestRun(
             start_date=pd.to_datetime(start_date).to_pydatetime(),
-            end_date=equity_filtered.index[-1].to_pydatetime() if not equity_filtered.empty else datetime.now(),
+            end_date=end_date,
             metrics=metrics_table,
             equity_curve=strategy_df["equity"].to_dict() if not strategy_df.empty else {},
             alloc_hist={str(k): v for k, v in zip(equity_filtered.index, alloc_hist_filtered)},
@@ -251,14 +254,14 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
             df = query_neon_with_retry(instrument)
             if not df.empty:
                 assets_data[instrument] = compute_indicators(df)
-                print(f"[DEBUG] Processed {instrument} data: {df.head()}")
+                print(f"[DEBUG] Processed {instrument} data: {len(df)} rows")
 
         if not assets_data:
             return {"error": "No data available in Neon"}
 
-        # Run tournament to get top assets
+        # Run tournament to get top assets - PASS assets_data!
         print("[DEBUG] Running tournament...")
-        tournament_results = run_tournament(ALL_ASSETS[:used_assets + 1])
+        tournament_results = run_tournament(ALL_ASSETS[:used_assets + 1], assets_data=assets_data)
         print(f"[DEBUG] Tournament results: {tournament_results}")
 
         gold_data = assets_data.get("PAXG", pd.DataFrame())
