@@ -166,17 +166,20 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
         print(f"[DEBUG] Metrics computed: {metrics_filtered}")
 
         # Generate signal from allocation history for strategy equity
-        strategy_df = assets_data[top_assets[0]] if top_assets else pd.DataFrame()
+        strategy_df = assets_data[top_assets[0]].copy() if top_assets else pd.DataFrame()
         strategy_df["signal"] = 0
-        for date, alloc in alloc_hist_filtered.items():
+        
+        # Fix: Properly iterate through allocation history
+        for idx, (date, alloc) in enumerate(zip(equity_filtered.index, alloc_hist_filtered)):
             if date in strategy_df.index:
                 strategy_df.loc[date, "signal"] = 1 if alloc != "CASH" else 0
+        
         strategy_df, strategy_metrics = compute_equity(strategy_df)
         print(f"[DEBUG] Strategy metrics: {strategy_metrics}")
 
         # Benchmark equity
         if benchmark in assets_data:
-            benchmark_df = assets_data[benchmark]
+            benchmark_df = assets_data[benchmark].copy()
             benchmark_df["signal"] = 1  # Always invested for buy-and-hold
             benchmark_df, benchmark_metrics = compute_equity(benchmark_df)
         else:
@@ -189,13 +192,15 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
         for asset in asset_table:
             symbol = asset["symbol"].replace("USDT", "")
             if symbol in assets_data:
-                asset_df = assets_data[symbol]
+                asset_df = assets_data[symbol].copy()
                 asset_df["signal"] = 1  # Buy-and-hold for each asset
                 _, asset_metrics = compute_equity(asset_df)
                 asset["equity"] = asset_metrics["final_equity"]
 
         top3 = [result["symbol"] for result in tournament_results[:3]] if tournament_results else []
-        current_alloc = alloc_hist_filtered[-1] if alloc_hist_filtered else "CASH"
+        
+        # Fix: Safe access to last element of list
+        current_alloc = alloc_hist_filtered[-1] if len(alloc_hist_filtered) > 0 else "CASH"
 
         metrics_table = {
             **metrics_filtered,
@@ -223,7 +228,7 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
             end_date=strategy_df.index[-1] if not strategy_df.empty else datetime.now(),
             metrics=metrics_table,
             equity_curve=strategy_df["equity"].to_dict() if not strategy_df.empty else {},
-            alloc_hist=alloc_hist_filtered,
+            alloc_hist={str(k): v for k, v in zip(equity_filtered.index, alloc_hist_filtered)},
             switches=switches_filtered
         )
         db.add(run)
@@ -233,6 +238,8 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
         return response
     except Exception as e:
         print(f"[ERROR] Backtest failed: {e}")
+        import traceback
+        traceback.print_exc()
         return {"error": str(e)}
 
 @app.get("/rebalance")
@@ -273,11 +280,14 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
         print(f"[DEBUG] Equity filtered length: {len(equity_filtered)}")
 
         # Generate signal for rebalance equity
-        rebalance_df = assets_data[top_assets[0]] if top_assets else pd.DataFrame()
+        rebalance_df = assets_data[top_assets[0]].copy() if top_assets else pd.DataFrame()
         rebalance_df["signal"] = 0
-        for date, alloc in alloc_hist.items():
+        
+        # Fix: Properly iterate through allocation history
+        for idx, (date, alloc) in enumerate(zip(equity_filtered.index, alloc_hist)):
             if date in rebalance_df.index:
                 rebalance_df.loc[date, "signal"] = 1 if alloc != "CASH" else 0
+        
         rebalance_df, rebalance_metrics = compute_equity(rebalance_df)
         print(f"[DEBUG] Rebalance metrics: {rebalance_metrics}")
 
@@ -285,13 +295,15 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
         for asset in asset_table:
             symbol = asset["symbol"].replace("USDT", "")
             if symbol in assets_data:
-                asset_df = assets_data[symbol]
+                asset_df = assets_data[symbol].copy()
                 asset_df["signal"] = 1  # Buy-and-hold for each asset
                 _, asset_metrics = compute_equity(asset_df)
                 asset["equity"] = asset_metrics["final_equity"]
 
         top3 = [result["symbol"] for result in tournament_results[:3]] if tournament_results else []
-        current_alloc = alloc_hist[-1]
+        
+        # Fix: Safe access to last element of list
+        current_alloc = alloc_hist[-1] if len(alloc_hist) > 0 else "CASH"
 
         return {
             "current_allocation": current_alloc,
@@ -302,35 +314,9 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
         }
     except Exception as e:
         print(f"[ERROR] Rebalance failed: {e}")
+        import traceback
+        traceback.print_exc()
         return {"error": str(e)}
-
-@app.get("/store-btc")
-async def store_btc():
-    db = SessionLocal()
-    success = store_single_asset(db, "BTCUSDT")
-    db.close()
-    return {"status": "BTC data stored" if success else "Failed to store BTC data"}
-
-@app.get("/store-eth")
-async def store_eth():
-    db = SessionLocal()
-    success = store_single_asset(db, "ETHUSDT")
-    db.close()
-    return {"status": "ETH data stored" if success else "Failed to store ETH data"}
-
-@app.get("/store-sol")
-async def store_sol():
-    db = SessionLocal()
-    success = store_single_asset(db, "SOLUSDT")
-    db.close()
-    return {"status": "SOL data stored" if success else "Failed to store SOL data"}
-
-@app.get("/store-paxg")
-async def store_paxg():
-    db = SessionLocal()
-    success = store_single_asset(db, "PAXGUSDT")
-    db.close()
-    return {"status": "PAXG data stored" if success else "Failed to store PAXG data"}
 
 # Scheduler for daily updates post-UTC close
 def daily_update():

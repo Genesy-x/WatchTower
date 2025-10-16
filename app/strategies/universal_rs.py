@@ -49,11 +49,16 @@ def rotate_equity(rs_data: pd.DataFrame, assets: dict, gold_df: pd.DataFrame, st
 
     for i in range(len(rs_data)):
         row = rs_data.iloc[i]
-        # Fix: Check for NaN or inf element-wise
-        if (row.isna().any()) | (np.isinf(row).any()) | (row.empty) | (row.dropna().empty):
+        # Fix: Check if all values are NaN or inf, or row is empty
+        if row.isna().all() or np.isinf(row).all() or row.dropna().empty:
             top = 'cash'
         else:
-            top = row.idxmax()
+            # Filter out NaN and inf before finding max
+            valid_row = row.replace([np.inf, -np.inf], np.nan).dropna()
+            if valid_row.empty:
+                top = 'cash'
+            else:
+                top = valid_row.idxmax()
 
         if top != current_alloc:
             switches += 1
@@ -61,9 +66,13 @@ def rotate_equity(rs_data: pd.DataFrame, assets: dict, gold_df: pd.DataFrame, st
             logger.info(f"Switch at {rs_data.index[i]}: {top}")
 
         if top == 'cash':
-            gold_tpi_prev = gold_tpi.iloc[i] if i > 0 else gold_tpi.iloc[0]
-            # Fix: Use .any() to reduce Series to scalar
-            current_use_gold = (gold_tpi_prev > 0).any() and use_gold
+            gold_tpi_prev = gold_tpi.iloc[i] if i < len(gold_tpi) else 0
+            # Fix: Check if scalar or use item() to get scalar value
+            if isinstance(gold_tpi_prev, pd.Series):
+                current_use_gold = (gold_tpi_prev > 0).any() and use_gold
+            else:
+                current_use_gold = (gold_tpi_prev > 0) and use_gold
+            
             period_return = gold_returns.iloc[i] if current_use_gold else 0
         else:
             period_return = returns_df.iloc[i][top]
