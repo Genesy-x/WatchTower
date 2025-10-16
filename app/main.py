@@ -31,7 +31,7 @@ ALL_ASSETS = [
     ("BTCUSDT", "bitcoin"),
     ("ETHUSDT", "ethereum"),
     ("SOLUSDT", "solana"),
-    ("PAXGUSDT", "pax-gold")  # Updated to PAXGUSDT
+    ("PAXGUSDT", "pax-gold")
 ]
 
 def store_single_asset(db, name, timeframe: str = "1d", limit: int = 1):
@@ -129,6 +129,7 @@ async def store_paxg():
 async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets: int = 3,
                    use_gold: bool = True, benchmark: str = "BTC", timeframe: str = "1d"):
     try:
+        print("[DEBUG] Starting backtest")
         # Fetch data from Neon with retry
         assets_data = {}
         for symbol, _ in ALL_ASSETS[:used_assets + 1]:
@@ -136,21 +137,29 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
             df = query_neon_with_retry(instrument)
             if not df.empty:
                 assets_data[instrument] = compute_indicators(df)
+                print(f"[DEBUG] Processed {instrument} data: {df.head()}")
 
         if not assets_data:
             return {"error": "No data available in Neon"}
 
-        gold_data = assets_data.get("PAXG", pd.DataFrame())  # Updated to PAXG
+        gold_data = assets_data.get("PAXG", pd.DataFrame())
         if gold_data.empty and use_gold:
             market_data = fetch_market_data("PAXGUSDT", timeframe, limit)
             gold_data = compute_indicators(market_data["ohlcv"])
+            print(f"[DEBUG] Fetched gold data: {gold_data.head()}")
 
         top_assets = list(assets_data.keys())[:used_assets]
+        print(f"[DEBUG] Top assets: {top_assets}")
         rs_data = compute_relative_strength({k: v for k, v in assets_data.items() if k in top_assets}, filtered=True)
+        print(f"[DEBUG] RS data shape: {rs_data.shape if not rs_data.empty else 'Empty'}")
+
         equity_filtered, alloc_hist_filtered, switches_filtered = rotate_equity(
             rs_data, {k: v for k, v in assets_data.items() if k in top_assets}, gold_data, start_date=start_date, use_gold=use_gold
         )
+        print(f"[DEBUG] Equity filtered length: {len(equity_filtered)}")
+
         metrics_filtered = compute_metrics(equity_filtered)
+        print(f"[DEBUG] Metrics computed: {metrics_filtered}")
 
         # Generate signal from allocation history for strategy equity
         strategy_df = assets_data[top_assets[0]]  # Use top asset as base
@@ -159,6 +168,7 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
             if date in strategy_df.index:
                 strategy_df.loc[date, "signal"] = 1 if alloc != "CASH" else 0
         strategy_df, strategy_metrics = compute_equity(strategy_df)
+        print(f"[DEBUG] Strategy metrics: {strategy_metrics}")
 
         # Benchmark equity
         if benchmark in assets_data:
@@ -218,11 +228,13 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
 
         return response
     except Exception as e:
+        print(f"[ERROR] Backtest failed: {e}")
         return {"error": str(e)}
 
 @app.get("/rebalance")
 async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str = "1d", limit: int = 1):
     try:
+        print("[DEBUG] Starting rebalance")
         # Fetch data from Neon with retry
         assets_data = {}
         for symbol, _ in ALL_ASSETS[:used_assets + 1]:
@@ -230,20 +242,26 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
             df = query_neon_with_retry(instrument)
             if not df.empty:
                 assets_data[instrument] = compute_indicators(df)
+                print(f"[DEBUG] Processed {instrument} data: {df.head()}")
 
         if not assets_data:
             return {"error": "No data available in Neon"}
 
-        gold_data = assets_data.get("PAXG", pd.DataFrame())  # Updated to PAXG
+        gold_data = assets_data.get("PAXG", pd.DataFrame())
         if gold_data.empty and use_gold:
             market_data = fetch_market_data("PAXGUSDT", timeframe, limit)
             gold_data = compute_indicators(market_data["ohlcv"])
+            print(f"[DEBUG] Fetched gold data: {gold_data.head()}")
 
         top_assets = list(assets_data.keys())[:used_assets]
+        print(f"[DEBUG] Top assets: {top_assets}")
         rs_data = compute_relative_strength({k: v for k, v in assets_data.items() if k in top_assets}, filtered=True)
+        print(f"[DEBUG] RS data shape: {rs_data.shape if not rs_data.empty else 'Empty'}")
+
         equity_filtered, alloc_hist, switches = rotate_equity(
             rs_data, {k: v for k, v in assets_data.items() if k in top_assets}, gold_data, use_gold=use_gold
         )
+        print(f"[DEBUG] Equity filtered length: {len(equity_filtered)}")
 
         # Generate signal for rebalance equity
         rebalance_df = assets_data[top_assets[0]]  # Use top asset as base
@@ -252,6 +270,7 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
             if date in rebalance_df.index:
                 rebalance_df.loc[date, "signal"] = 1 if alloc != "CASH" else 0
         rebalance_df, rebalance_metrics = compute_equity(rebalance_df)
+        print(f"[DEBUG] Rebalance metrics: {rebalance_metrics}")
 
         asset_table = [{"symbol": f"{k}USDT", "score": 0} for k in top_assets + (["PAXG"] if use_gold else [])]
         for asset in asset_table:
@@ -273,6 +292,7 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
             "switches": switches
         }
     except Exception as e:
+        print(f"[ERROR] Rebalance failed: {e}")
         return {"error": str(e)}
 
 @app.get("/store-btc")
