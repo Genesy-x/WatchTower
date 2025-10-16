@@ -18,7 +18,8 @@ def compute_equity(df: pd.DataFrame, fee: float = 0.0005, rebalance_interval: in
 
     # --- Compute log returns
     df["ret"] = np.log(df["close"] / df["close"].shift(1))
-    df["ret"].fillna(0, inplace=True)
+    # Fix: Use assignment instead of inplace
+    df["ret"] = df["ret"].fillna(0)
 
     # --- Apply trading signal (1 = invested, 0 = cash)
     df["strategy_ret"] = df["ret"] * df["signal"]

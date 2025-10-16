@@ -3,9 +3,15 @@ from app.data import fetch_market_data
 from app.indicators import compute_indicators
 from app.scoring import score_coin
 
-def run_tournament(assets):
+def run_tournament(assets, assets_data=None):
     """
     Run the WatchTower tournament for a list of assets.
+    
+    Args:
+        assets: list of (symbol, cg_id) tuples
+        assets_data: dict of pre-computed indicator data {instrument: df}
+                    If provided, use this instead of fetching fresh data
+    
     Returns: list of dicts sorted by score
     """
     results = []
@@ -13,8 +19,18 @@ def run_tournament(assets):
     for symbol, cg_id in assets:
         print(f"⚙️  Processing {symbol}...")
         try:
-            data = fetch_market_data(symbol, "1d", 700)
-            df = compute_indicators(data["ohlcv"])
+            instrument = symbol.replace("USDT", "")
+            
+            # Use pre-computed data if available
+            if assets_data and instrument in assets_data:
+                df = assets_data[instrument]
+                print(f"[DEBUG] Using pre-loaded data for {symbol}: {len(df)} rows")
+            else:
+                # Fall back to fetching fresh data
+                data = fetch_market_data(symbol, "1d", 700)
+                df = compute_indicators(data["ohlcv"])
+                print(f"[DEBUG] Fetched fresh data for {symbol}: {len(df)} rows")
+            
             if df.empty or len(df) < 100:  # Minimum 100 days for validity
                 print(f"[WARNING] Insufficient data for {symbol}: {len(df)} rows")
                 results.append({
@@ -25,6 +41,7 @@ def run_tournament(assets):
                     "market_cap": 0
                 })
                 continue
+            
             # Mock fundamentals
             fundamentals = {
                 "name": symbol.replace("USDT", ""),
@@ -40,7 +57,7 @@ def run_tournament(assets):
                 "price": fundamentals["price"],
                 "market_cap": fundamentals["market_cap"],
             })
-            time.sleep(1)  # Avoid rate limits
+            time.sleep(0.1)  # Small delay to avoid rate limits
         except Exception as e:
             print(f"❌ {symbol} failed: {e}")
             results.append({
