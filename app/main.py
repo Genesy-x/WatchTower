@@ -12,7 +12,6 @@ import numpy as np
 from apscheduler.schedulers.background import BackgroundScheduler
 import os
 import uvicorn
-from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
 import time
 
@@ -142,19 +141,24 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
         if not assets_data:
             return {"error": "No data available in Neon"}
 
+        # Run tournament to get top assets
+        print("[DEBUG] Running tournament...")
+        tournament_results = run_tournament(ALL_ASSETS[:used_assets + 1])
+        print(f"[DEBUG] Tournament results: {tournament_results}")
+
         gold_data = assets_data.get("PAXG", pd.DataFrame())
         if gold_data.empty and use_gold:
             market_data = fetch_market_data("PAXGUSDT", timeframe, limit)
             gold_data = compute_indicators(market_data["ohlcv"])
             print(f"[DEBUG] Fetched gold data: {gold_data.head()}")
 
-        top_assets = list(assets_data.keys())[:used_assets]
+        top_assets = [result["symbol"].replace("USDT", "") for result in tournament_results[:used_assets]]
         print(f"[DEBUG] Top assets: {top_assets}")
-        rs_data = compute_relative_strength({k: v for k, v in assets_data.items() if k in top_assets}, filtered=True)
+        rs_data = compute_relative_strength({k: assets_data[k] for k in top_assets if k in assets_data}, filtered=True)
         print(f"[DEBUG] RS data shape: {rs_data.shape if not rs_data.empty else 'Empty'}")
 
         equity_filtered, alloc_hist_filtered, switches_filtered = rotate_equity(
-            rs_data, {k: v for k, v in assets_data.items() if k in top_assets}, gold_data, start_date=start_date, use_gold=use_gold
+            rs_data, {k: assets_data[k] for k in top_assets if k in assets_data}, gold_data, start_date=start_date, use_gold=use_gold
         )
         print(f"[DEBUG] Equity filtered length: {len(equity_filtered)}")
 
@@ -162,7 +166,7 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
         print(f"[DEBUG] Metrics computed: {metrics_filtered}")
 
         # Generate signal from allocation history for strategy equity
-        strategy_df = assets_data[top_assets[0]]  # Use top asset as base
+        strategy_df = assets_data[top_assets[0]] if top_assets else pd.DataFrame()
         strategy_df["signal"] = 0
         for date, alloc in alloc_hist_filtered.items():
             if date in strategy_df.index:
@@ -181,7 +185,7 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
             benchmark_df, benchmark_metrics = compute_equity(benchmark_df)
 
         # Asset table with equity from compute_equity
-        asset_table = [{"symbol": f"{k}USDT", "score": 0} for k in top_assets + (["PAXG"] if use_gold else [])]
+        asset_table = tournament_results[:used_assets + 1] if tournament_results else []
         for asset in asset_table:
             symbol = asset["symbol"].replace("USDT", "")
             if symbol in assets_data:
@@ -190,7 +194,7 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
                 _, asset_metrics = compute_equity(asset_df)
                 asset["equity"] = asset_metrics["final_equity"]
 
-        top3 = [f"{k}USDT" for k in list(assets_data.keys())[:3]]
+        top3 = [result["symbol"] for result in tournament_results[:3]] if tournament_results else []
         current_alloc = alloc_hist_filtered[-1] if alloc_hist_filtered else "CASH"
 
         metrics_table = {
@@ -202,23 +206,23 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
 
         response = {
             "metrics": metrics_table,
-            "final_equity_filtered": strategy_df["equity"].iloc[-1],
+            "final_equity_filtered": strategy_df["equity"].iloc[-1] if not strategy_df.empty else 0,
             "switches": switches_filtered,
             "current_allocation": current_alloc,
             "top3": top3,
             "asset_table": asset_table,
-            "equity_curve_filtered": strategy_df["equity"].to_dict(),
-            "buy_hold_equity": benchmark_df["bh_equity"].to_dict()
+            "equity_curve_filtered": strategy_df["equity"].to_dict() if not strategy_df.empty else {},
+            "buy_hold_equity": benchmark_df["bh_equity"].to_dict() if not benchmark_df.empty else {}
         }
 
-        strategy_df.index = strategy_df.index.astype(str)
+        strategy_df.index = strategy_df.index.astype(str) if not strategy_df.empty else []
 
         db = SessionLocal()
         run = BacktestRun(
             start_date=pd.to_datetime(start_date).to_pydatetime(),
-            end_date=strategy_df.index[-1],
+            end_date=strategy_df.index[-1] if not strategy_df.empty else datetime.now(),
             metrics=metrics_table,
-            equity_curve=strategy_df["equity"].to_dict(),
+            equity_curve=strategy_df["equity"].to_dict() if not strategy_df.empty else {},
             alloc_hist=alloc_hist_filtered,
             switches=switches_filtered
         )
@@ -247,24 +251,29 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
         if not assets_data:
             return {"error": "No data available in Neon"}
 
+        # Run tournament to get top assets
+        print("[DEBUG] Running tournament...")
+        tournament_results = run_tournament(ALL_ASSETS[:used_assets + 1])
+        print(f"[DEBUG] Tournament results: {tournament_results}")
+
         gold_data = assets_data.get("PAXG", pd.DataFrame())
         if gold_data.empty and use_gold:
             market_data = fetch_market_data("PAXGUSDT", timeframe, limit)
             gold_data = compute_indicators(market_data["ohlcv"])
             print(f"[DEBUG] Fetched gold data: {gold_data.head()}")
 
-        top_assets = list(assets_data.keys())[:used_assets]
+        top_assets = [result["symbol"].replace("USDT", "") for result in tournament_results[:used_assets]]
         print(f"[DEBUG] Top assets: {top_assets}")
-        rs_data = compute_relative_strength({k: v for k, v in assets_data.items() if k in top_assets}, filtered=True)
+        rs_data = compute_relative_strength({k: assets_data[k] for k in top_assets if k in assets_data}, filtered=True)
         print(f"[DEBUG] RS data shape: {rs_data.shape if not rs_data.empty else 'Empty'}")
 
         equity_filtered, alloc_hist, switches = rotate_equity(
-            rs_data, {k: v for k, v in assets_data.items() if k in top_assets}, gold_data, use_gold=use_gold
+            rs_data, {k: assets_data[k] for k in top_assets if k in assets_data}, gold_data, use_gold=use_gold
         )
         print(f"[DEBUG] Equity filtered length: {len(equity_filtered)}")
 
         # Generate signal for rebalance equity
-        rebalance_df = assets_data[top_assets[0]]  # Use top asset as base
+        rebalance_df = assets_data[top_assets[0]] if top_assets else pd.DataFrame()
         rebalance_df["signal"] = 0
         for date, alloc in alloc_hist.items():
             if date in rebalance_df.index:
@@ -272,7 +281,7 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
         rebalance_df, rebalance_metrics = compute_equity(rebalance_df)
         print(f"[DEBUG] Rebalance metrics: {rebalance_metrics}")
 
-        asset_table = [{"symbol": f"{k}USDT", "score": 0} for k in top_assets + (["PAXG"] if use_gold else [])]
+        asset_table = tournament_results[:used_assets + 1] if tournament_results else []
         for asset in asset_table:
             symbol = asset["symbol"].replace("USDT", "")
             if symbol in assets_data:
@@ -281,14 +290,14 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
                 _, asset_metrics = compute_equity(asset_df)
                 asset["equity"] = asset_metrics["final_equity"]
 
-        top3 = [f"{k}USDT" for k in list(assets_data.keys())[:3]]
+        top3 = [result["symbol"] for result in tournament_results[:3]] if tournament_results else []
         current_alloc = alloc_hist[-1]
 
         return {
             "current_allocation": current_alloc,
             "top3": top3,
             "asset_table": asset_table,
-            "latest_equity": rebalance_df["equity"].iloc[-1],
+            "latest_equity": rebalance_df["equity"].iloc[-1] if not rebalance_df.empty else 0,
             "switches": switches
         }
     except Exception as e:

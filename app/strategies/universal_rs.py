@@ -17,7 +17,8 @@ def compute_relative_strength(assets: dict, filtered: bool = True) -> pd.DataFra
     if filtered:
         tpi_dict = {name: df["TPI"] for name, df in assets.items()}
         tpi_df = pd.DataFrame(tpi_dict).reindex(momentum_df.index).ffill()
-        momentum_df = momentum_df.where(tpi_df > 0, -np.inf)
+        # Fix: Use bitwise & and element-wise comparison
+        momentum_df = momentum_df.where((tpi_df > 0) & (~tpi_df.isna()), -np.inf)
 
     rs_data = momentum_df.rank(axis=1, pct=True, method='min')
     return rs_data
@@ -48,7 +49,8 @@ def rotate_equity(rs_data: pd.DataFrame, assets: dict, gold_df: pd.DataFrame, st
 
     for i in range(len(rs_data)):
         row = rs_data.iloc[i]
-        if row.isna().any() or np.isinf(row).any() or row.empty or row.dropna().empty:
+        # Fix: Check for NaN or inf element-wise
+        if (row.isna().any()) | (np.isinf(row).any()) | (row.empty) | (row.dropna().empty):
             top = 'cash'
         else:
             top = row.idxmax()
@@ -60,7 +62,8 @@ def rotate_equity(rs_data: pd.DataFrame, assets: dict, gold_df: pd.DataFrame, st
 
         if top == 'cash':
             gold_tpi_prev = gold_tpi.iloc[i] if i > 0 else gold_tpi.iloc[0]
-            current_use_gold = gold_tpi_prev > 0 and use_gold
+            # Fix: Use .any() to reduce Series to scalar
+            current_use_gold = (gold_tpi_prev > 0).any() and use_gold
             period_return = gold_returns.iloc[i] if current_use_gold else 0
         else:
             period_return = returns_df.iloc[i][top]

@@ -17,23 +17,22 @@ def score_coin(df: pd.DataFrame, fundamentals: dict):
     if latest.empty:
         return 0.0
 
-    # Extract scalar values with type-safe checks
+    # Extract scalar values with explicit checks
     momentum = latest.get("Momentum")
-    momentum_score = np.tanh(momentum / 100) if momentum is not None and pd.notna(momentum) and not isinstance(momentum, pd.Series) else 0
-    if momentum is not None and isinstance(momentum, pd.Series) and not momentum.empty:
-        momentum_score = np.tanh(momentum.item() / 100)
+    momentum_score = np.tanh(momentum / 100) if pd.notna(momentum) and not isinstance(momentum, pd.Series) else 0
+    if isinstance(momentum, pd.Series) and not momentum.empty:
+        momentum_score = np.tanh(momentum.iloc[-1] / 100)  # Use iloc[-1] for last value
 
     rsi = latest.get("RSI")
-    rsi_score = 1 - abs(50 - rsi) / 50 if rsi is not None and pd.notna(rsi) and not isinstance(rsi, pd.Series) else 0.5
-    if rsi is not None and isinstance(rsi, pd.Series) and not rsi.empty:
-        rsi_score = 1 - abs(50 - rsi.item()) / 50
+    rsi_score = 1 - abs(50 - rsi) / 50 if pd.notna(rsi) and not isinstance(rsi, pd.Series) else 0.5
+    if isinstance(rsi, pd.Series) and not rsi.empty:
+        rsi_score = 1 - abs(50 - rsi.iloc[-1]) / 50  # Use iloc[-1] for last value
 
     sma50 = latest.get("SMA50", 0)
     sma200 = latest.get("SMA200", 0)
-    sma_trend = (sma50 - sma200) / (sma200 or 1) if sma50 is not None and sma200 is not None and pd.notna(sma50) and pd.notna(sma200) and not isinstance(sma50, pd.Series) and not isinstance(sma200, pd.Series) else 0
-    if (sma50 is not None and isinstance(sma50, pd.Series) or sma200 is not None and isinstance(sma200, pd.Series)) and not sma50.empty and not sma200.empty:
-        sma_trend = (sma50.item() - sma200.item()) / (sma200.item() or 1)
-    sma_score = np.tanh(sma_trend * 10)
+    sma_score = (sma50 - sma200) / (sma200 or 1) if pd.notna(sma50) and pd.notna(sma200) and not isinstance(sma50, pd.Series) and not isinstance(sma200, pd.Series) else 0
+    if (isinstance(sma50, pd.Series) or isinstance(sma200, pd.Series)) and not sma50.empty and not sma200.empty:
+        sma_score = (sma50.iloc[-1] - sma200.iloc[-1]) / (sma200.iloc[-1] or 1)  # Use iloc[-1] for last values
 
     vol_ratio = (fundamentals.get("volume_24h", 0) / (fundamentals.get("market_cap", 1) or 1))
     vol_score = np.tanh(vol_ratio * 1e3)
