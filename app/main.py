@@ -180,27 +180,43 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
         metrics_filtered = compute_metrics(equity_filtered)
         print(f"[DEBUG] Metrics computed: {metrics_filtered}")
 
-        # Generate signal from allocation history for strategy equity
-        strategy_df = assets_data[top_assets[0]].copy() if top_assets else pd.DataFrame()
-        strategy_df["signal"] = 0
+        # The equity_filtered IS the strategy equity - don't recalculate it!
+        # Just convert it to the format needed for response
+        strategy_equity = equity_filtered.copy()
         
-        # Fix: Properly iterate through allocation history
-        for idx, (date, alloc) in enumerate(zip(equity_filtered.index, alloc_hist_filtered)):
-            if date in strategy_df.index:
-                strategy_df.loc[date, "signal"] = 1 if alloc != "CASH" else 0
+        # Calculate strategy metrics from the rotation equity
+        strategy_returns = strategy_equity.pct_change().dropna()
+        if not strategy_returns.empty and strategy_returns.std() != 0:
+            strategy_sharpe = (strategy_returns.mean() / strategy_returns.std()) * np.sqrt(365)
+        else:
+            strategy_sharpe = 0
         
-        strategy_df, strategy_metrics = compute_equity(strategy_df)
+        strategy_drawdowns = (strategy_equity / strategy_equity.cummax()) - 1
+        strategy_max_dd = strategy_drawdowns.min() * 100
+        strategy_total_return = (strategy_equity.iloc[-1] - 1) * 100
+        
+        strategy_metrics = {
+            'total_return_%': strategy_total_return,
+            'buy_and_hold_%': 0,  # Will calculate from benchmark
+            'max_drawdown_%': strategy_max_dd,
+            'final_equity': strategy_equity.iloc[-1],
+            'sharpe': strategy_sharpe
+        }
+        
         print(f"[DEBUG] Strategy metrics: {strategy_metrics}")
 
-        # Benchmark equity
+        # Benchmark equity - simple buy and hold of the first asset
         if benchmark in assets_data:
-            benchmark_df = assets_data[benchmark].copy()
-            benchmark_df["signal"] = 1  # Always invested for buy-and-hold
-            benchmark_df, benchmark_metrics = compute_equity(benchmark_df)
+            benchmark_df = assets_data[benchmark].reindex(equity_filtered.index)
+            benchmark_returns = benchmark_df['close'].pct_change().fillna(0)
+            benchmark_equity = (1 + benchmark_returns).cumprod()
         else:
-            benchmark_df = pd.DataFrame(index=strategy_df.index, data={"close": 1.0})
-            benchmark_df["signal"] = 1
-            benchmark_df, benchmark_metrics = compute_equity(benchmark_df)
+            benchmark_equity = pd.Series(1.0, index=equity_filtered.index)
+        
+        benchmark_total_return = (benchmark_equity.iloc[-1] - 1) * 100
+        strategy_metrics['buy_and_hold_%'] = benchmark_total_return
+        
+        print(f"[DEBUG] Benchmark return: {benchmark_total_return:.2f}%")
 
         # Asset table with equity from compute_equity
         asset_table = tournament_results[:used_assets + 1] if tournament_results else []
@@ -226,13 +242,13 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
 
         response = {
             "metrics": metrics_table,
-            "final_equity_filtered": strategy_df["equity"].iloc[-1] if not strategy_df.empty else 0,
+            "final_equity_filtered": strategy_equity.iloc[-1] if not strategy_equity.empty else 0,
             "switches": switches_filtered,
             "current_allocation": current_alloc,
             "top3": top3,
             "asset_table": asset_table,
-            "equity_curve_filtered": strategy_df["equity"].to_dict() if not strategy_df.empty else {},
-            "buy_hold_equity": benchmark_df["bh_equity"].to_dict() if not benchmark_df.empty else {}
+            "equity_curve_filtered": strategy_equity.to_dict() if not strategy_equity.empty else {},
+            "buy_hold_equity": benchmark_equity.to_dict() if not benchmark_equity.empty else {}
         }
 
         # Get end_date BEFORE any conversions
@@ -243,7 +259,7 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
             start_date=pd.to_datetime(start_date).to_pydatetime(),
             end_date=end_date,
             metrics=metrics_table,
-            equity_curve=strategy_df["equity"].to_dict() if not strategy_df.empty else {},
+            equity_curve=strategy_equity.to_dict() if not strategy_equity.empty else {},
             alloc_hist={str(k): v for k, v in zip(equity_filtered.index, alloc_hist_filtered)},
             switches=switches_filtered
         )
@@ -310,16 +326,27 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
         
         print(f"[DEBUG] Equity filtered length: {len(equity_filtered)}")
 
-        # Generate signal for rebalance equity
-        rebalance_df = assets_data[top_assets[0]].copy() if top_assets else pd.DataFrame()
-        rebalance_df["signal"] = 0
+        # The equity_filtered IS the strategy equity
+        rebalance_equity = equity_filtered.copy()
         
-        # Fix: Properly iterate through allocation history
-        for idx, (date, alloc) in enumerate(zip(equity_filtered.index, alloc_hist)):
-            if date in rebalance_df.index:
-                rebalance_df.loc[date, "signal"] = 1 if alloc != "CASH" else 0
+        # Calculate metrics
+        rebalance_returns = rebalance_equity.pct_change().dropna()
+        if not rebalance_returns.empty and rebalance_returns.std() != 0:
+            rebalance_sharpe = (rebalance_returns.mean() / rebalance_returns.std()) * np.sqrt(365)
+        else:
+            rebalance_sharpe = 0
         
-        rebalance_df, rebalance_metrics = compute_equity(rebalance_df)
+        rebalance_drawdowns = (rebalance_equity / rebalance_equity.cummax()) - 1
+        rebalance_max_dd = rebalance_drawdowns.min() * 100
+        rebalance_total_return = (rebalance_equity.iloc[-1] - 1) * 100
+        
+        rebalance_metrics = {
+            'total_return_%': rebalance_total_return,
+            'max_drawdown_%': rebalance_max_dd,
+            'final_equity': rebalance_equity.iloc[-1],
+            'sharpe': rebalance_sharpe
+        }
+        
         print(f"[DEBUG] Rebalance metrics: {rebalance_metrics}")
 
         asset_table = tournament_results[:used_assets + 1] if tournament_results else []
@@ -340,7 +367,7 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
             "current_allocation": current_alloc,
             "top3": top3,
             "asset_table": asset_table,
-            "latest_equity": rebalance_df["equity"].iloc[-1] if not rebalance_df.empty else 0,
+            "latest_equity": rebalance_equity.iloc[-1] if not rebalance_equity.empty else 0,
             "switches": switches
         }
     except Exception as e:
