@@ -20,6 +20,10 @@ Required columns for any strategy:
 from app.indicators import compute_indicators as simple_strategy
 from app.strategies.qb_strategy import compute_indicators as qb_strategy
 
+# Import rotation functions
+from app.strategies.universal_rs import rotate_equity as simple_rotation, compute_relative_strength
+from app.strategies.qb_rotation import rotate_equity_qb as qb_rotation
+
 # ============================================
 # STRATEGY CONFIGURATION
 # ============================================
@@ -29,11 +33,15 @@ AVAILABLE_STRATEGIES = {
     'simple': {
         'name': 'Simple Momentum Strategy',
         'function': simple_strategy,
+        'rotation': simple_rotation,
+        'use_rs': True,  # Uses relative strength ranking
         'description': 'Uses DEMA, VIDYA, ALMA, BBands for signals'
     },
     'qb': {
         'name': 'QB Trading System',
         'function': qb_strategy,
+        'rotation': qb_rotation,
+        'use_rs': False,  # Uses signal-based allocation
         'description': 'Advanced oscillator + MA system with state preservation'
     }
 }
