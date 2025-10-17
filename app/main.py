@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.data import fetch_market_data
-from app.strategy_manager import compute_indicators, get_rotation_function, uses_relative_strength
+from app.strategy_manager import compute_indicators, uses_relative_strength
 from app.strategies.universal_rs import compute_relative_strength, compute_metrics
 from app.tournament import run_tournament
 from app.db.database import SessionLocal, BacktestRun, OHLCVData
@@ -154,12 +154,27 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
 
         top_assets = [result["symbol"].replace("USDT", "") for result in tournament_results[:used_assets]]
         print(f"[DEBUG] Top assets: {top_assets}")
-        rs_data = compute_relative_strength({k: assets_data[k] for k in top_assets if k in assets_data}, filtered=True)
-        print(f"[DEBUG] RS data shape: {rs_data.shape if not rs_data.empty else 'Empty'}")
-
-        equity_filtered, alloc_hist_filtered, switches_filtered = rotate_equity(
-            rs_data, {k: assets_data[k] for k in top_assets if k in assets_data}, gold_data, start_date=start_date, use_gold=use_gold
-        )
+        
+        # Get rotation function based on active strategy
+        use_rs = uses_relative_strength()
+        
+        if use_rs:
+            # Momentum-based rotation (simple strategy)
+            from app.strategies.universal_rs import rotate_equity
+            rs_data = compute_relative_strength({k: assets_data[k] for k in top_assets if k in assets_data}, filtered=True)
+            print(f"[DEBUG] RS data shape: {rs_data.shape if not rs_data.empty else 'Empty'}")
+            
+            equity_filtered, alloc_hist_filtered, switches_filtered = rotate_equity(
+                rs_data, {k: assets_data[k] for k in top_assets if k in assets_data}, gold_data, start_date=start_date, use_gold=use_gold
+            )
+        else:
+            # Signal-based rotation (QB strategy)
+            from app.strategies.qb_rotation import rotate_equity_qb
+            print(f"[DEBUG] Using QB signal-based rotation")
+            equity_filtered, alloc_hist_filtered, switches_filtered = rotate_equity_qb(
+                {k: assets_data[k] for k in top_assets if k in assets_data}, gold_data, start_date=start_date, use_gold=use_gold
+            )
+        
         print(f"[DEBUG] Equity filtered length: {len(equity_filtered)}")
 
         metrics_filtered = compute_metrics(equity_filtered)
@@ -272,12 +287,27 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
 
         top_assets = [result["symbol"].replace("USDT", "") for result in tournament_results[:used_assets]]
         print(f"[DEBUG] Top assets: {top_assets}")
-        rs_data = compute_relative_strength({k: assets_data[k] for k in top_assets if k in assets_data}, filtered=True)
-        print(f"[DEBUG] RS data shape: {rs_data.shape if not rs_data.empty else 'Empty'}")
-
-        equity_filtered, alloc_hist, switches = rotate_equity(
-            rs_data, {k: assets_data[k] for k in top_assets if k in assets_data}, gold_data, use_gold=use_gold
-        )
+        
+        # Get rotation function based on active strategy
+        use_rs = uses_relative_strength()
+        
+        if use_rs:
+            # Momentum-based rotation (simple strategy)
+            from app.strategies.universal_rs import rotate_equity
+            rs_data = compute_relative_strength({k: assets_data[k] for k in top_assets if k in assets_data}, filtered=True)
+            print(f"[DEBUG] RS data shape: {rs_data.shape if not rs_data.empty else 'Empty'}")
+            
+            equity_filtered, alloc_hist, switches = rotate_equity(
+                rs_data, {k: assets_data[k] for k in top_assets if k in assets_data}, gold_data, use_gold=use_gold
+            )
+        else:
+            # Signal-based rotation (QB strategy)
+            from app.strategies.qb_rotation import rotate_equity_qb
+            print(f"[DEBUG] Using QB signal-based rotation")
+            equity_filtered, alloc_hist, switches = rotate_equity_qb(
+                {k: assets_data[k] for k in top_assets if k in assets_data}, gold_data, use_gold=use_gold
+            )
+        
         print(f"[DEBUG] Equity filtered length: {len(equity_filtered)}")
 
         # Generate signal for rebalance equity
