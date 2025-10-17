@@ -21,7 +21,7 @@ from app.indicators import compute_indicators as simple_strategy
 from app.strategies.qb_strategy import compute_indicators as qb_strategy
 
 # Import rotation functions
-from app.strategies.universal_rs import rotate_equity as simple_rotation, compute_relative_strength
+from app.strategies.universal_rs import rotate_equity as simple_rotation
 from app.strategies.qb_rotation import rotate_equity_qb as qb_rotation
 
 # ============================================
@@ -60,15 +60,26 @@ def get_active_strategy():
     strategy = AVAILABLE_STRATEGIES[ACTIVE_STRATEGY]
     print(f"[STRATEGY] Using: {strategy['name']}")
     print(f"[STRATEGY] Description: {strategy['description']}")
-    return strategy['function']
+    print(f"[STRATEGY] Rotation type: {'Relative Strength' if strategy.get('use_rs') else 'Signal-Based'}")
+    return strategy
 
 def compute_indicators(df):
     """
     Wrapper function that calls the active strategy's compute_indicators
     This is the main entry point used throughout the application
     """
-    strategy_func = get_active_strategy()
-    return strategy_func(df)
+    strategy = get_active_strategy()
+    return strategy['function'](df)
+
+def get_rotation_function():
+    """Get the rotation function for the active strategy"""
+    strategy = get_active_strategy()
+    return strategy['rotation']
+
+def uses_relative_strength():
+    """Check if active strategy uses RS ranking"""
+    strategy = get_active_strategy()
+    return strategy.get('use_rs', True)
 
 def list_strategies():
     """List all available strategies"""
