@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.data import fetch_market_data
-from app.indicators import compute_indicators
+from app.strategy_manager import compute_indicators  # Now using strategy manager
 from app.strategies.universal_rs import compute_relative_strength, rotate_equity, compute_metrics
 from app.tournament import run_tournament
 from app.db.database import SessionLocal, BacktestRun, OHLCVData

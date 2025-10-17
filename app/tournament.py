@@ -1,6 +1,6 @@
 import time
 from app.data import fetch_market_data
-from app.indicators import compute_indicators
+from app.strategy_manager import compute_indicators  # Using strategy manager
 from app.scoring import score_coin
 
 def run_tournament(assets, assets_data=None):
