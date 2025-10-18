@@ -77,7 +77,8 @@ def rotate_equity_qb(assets: dict, gold_df: pd.DataFrame, start_date: str = None
     for i in range(len(common_index)):
         date = common_index[i]
         
-        # Get QB signals for all assets at this date
+        # QB signals are already shifted in the indicator calculation
+        # So we can use current index directly - it represents the signal from previous day
         current_qb = qb_df.iloc[i]
         current_momentum = momentum_df.iloc[i]
         
@@ -94,7 +95,7 @@ def rotate_equity_qb(assets: dict, gold_df: pd.DataFrame, start_date: str = None
                 current_alloc = top_asset
                 logger.info(f"Switch at {date}: {top_asset} (QB=1, Momentum={bullish_momentum[top_asset]:.4f})")
             
-            # Get return from top asset
+            # Get return from CURRENT day
             period_return = returns_df.iloc[i][top_asset]
             alloc = top_asset
             

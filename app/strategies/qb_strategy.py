@@ -1,6 +1,6 @@
 """
-QB Trading Strategy
-Converted from Pine Script to Python
+QB Trading Strategy - NO REPAINTING VERSION
+Calculates indicators using only data available at each point in time
 """
 import pandas as pd
 import numpy as np
@@ -10,11 +10,8 @@ def calculate_rsi(src, period=14):
     delta = src.diff()
     gain = delta.where(delta > 0, 0)
     loss = -delta.where(delta < 0, 0)
-    
-    # Calculate SMMA (RMA in Pine Script)
     avg_gain = gain.ewm(alpha=1/period, adjust=False).mean()
     avg_loss = loss.ewm(alpha=1/period, adjust=False).mean()
-    
     rs = avg_gain / avg_loss
     rsi = 100 - (100 / (1 + rs))
     return rsi
@@ -70,33 +67,26 @@ def normalize(src, length):
 
 def ma_stdev(ma, ma2, src):
     """Calculate MA standard deviation signal"""
-    # Base MA Standard Deviation
     base_ma_sd = calculate_stdev(ma, 30)
     upper_base_ma = (ma + base_ma_sd) * 1
     lower_base_ma = (ma - base_ma_sd) * 1
     
-    # Base signals
     base_ma_long_signal = src > upper_base_ma
     base_ma_short_signal = src < lower_base_ma
     
-    # Normalized MA Calculations
     normalized_base_ma = ma2
     normalized_ma = -1 * normalized_base_ma / src
-    
-    # Normalized Standard Deviation
     normalized_sd = calculate_stdev(normalized_ma, 30)
     normalized_lower_bound = normalized_ma - normalized_sd
     
-    # Normalized signals
     normalized_long_signal = normalized_lower_bound > -1
     normalized_short_signal = normalized_ma < -1
     
-    # Final signal with state preservation
+    # State preservation
     final_sig = pd.Series(0, index=src.index)
-    
     for i in range(len(src)):
         if i > 0:
-            final_sig.iloc[i] = final_sig.iloc[i-1]  # Preserve previous state
+            final_sig.iloc[i] = final_sig.iloc[i-1]
         
         if base_ma_long_signal.iloc[i] and normalized_long_signal.iloc[i]:
             final_sig.iloc[i] = 1
@@ -107,13 +97,14 @@ def ma_stdev(ma, ma2, src):
 
 def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Main entry point for QB strategy indicators
-    This function signature matches the expected interface
+    NO REPAINTING VERSION
+    Key: We shift the QB signal by 1 day so that on day T, we use the signal from day T-1
+    This ensures we're only using data available at the close of the previous bar
     """
     df = df.copy()
     src = df['close']
     
-    # OSCILLATORS - Midline Cross
+    # Calculate all base indicators (these are fine, they use rolling windows)
     rsi_ = calculate_rsi(src, 14)
     zscore_ = calculate_zscore(src, 40)
     roc_ = calculate_roc(src, 30)
@@ -122,10 +113,10 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     zscore = smma(zscore_, 2)
     roc = smma(roc_, 2)
     
+    # OSCILLATORS - Midline Cross
     rsis = pd.Series(np.where(rsi > 50, 1, np.where(rsi < 50, -1, 0)), index=src.index)
     zscores = pd.Series(np.where(zscore > 0, 1, np.where(zscore < 0, -1, 0)), index=src.index)
     rocs = pd.Series(np.where(roc > 0, 1, np.where(roc < 0, -1, 0)), index=src.index)
-    
     avg = pd.Series(np.where((rsis + zscores + rocs) / 3 > 0, 1, -1), index=src.index)
     
     # OSCILLATORS - Stdev
@@ -152,19 +143,16 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
             zscore_stdevs.iloc[i] = zscore_stdevs.iloc[i-1]
             roc_stdevs.iloc[i] = roc_stdevs.iloc[i-1]
         
-        # RSI stdev
         if not pd.isna(norm_up1.iloc[i]) and norm_up1.iloc[i] > 50:
             rsi_stdevs.iloc[i] = 1
         elif not pd.isna(norm_dn1.iloc[i]) and norm_dn1.iloc[i] < 50:
             rsi_stdevs.iloc[i] = -1
         
-        # Zscore stdev
         if not pd.isna(norm_up2.iloc[i]) and norm_up2.iloc[i] > 0:
             zscore_stdevs.iloc[i] = 1
         elif not pd.isna(norm_dn2.iloc[i]) and norm_dn2.iloc[i] < 0:
             zscore_stdevs.iloc[i] = -1
         
-        # ROC stdev
         if not pd.isna(norm_up4.iloc[i]) and norm_up4.iloc[i] > 0:
             roc_stdevs.iloc[i] = 1
         elif not pd.isna(norm_dn4.iloc[i]) and norm_dn4.iloc[i] < 0:
@@ -210,7 +198,7 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     
     for i in range(len(src)):
         if i > 0 and not pd.isna(QB.iloc[i-1]):
-            QB.iloc[i] = QB.iloc[i-1]  # Preserve previous state
+            QB.iloc[i] = QB.iloc[i-1]
         
         if not pd.isna(avg_.iloc[i]):
             if avg_.iloc[i] > 0.34:
@@ -218,17 +206,21 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
             elif avg_.iloc[i] < -0.34:
                 QB.iloc[i] = -1
     
-    # Add required columns for compatibility with rotation strategy
-    df['QB'] = QB
-    df['Signal'] = avg_
-    df['TPI'] = QB  # TPI used for filtering in rotation
-    df['Momentum'] = df['close'].pct_change(1)  # Used for ranking
+    # CRITICAL: Shift QB signal by 1 to avoid look-ahead bias
+    # On day T, we use the QB signal that was available at the close of day T-1
+    QB_shifted = QB.shift(1)
     
-    # Store intermediate values for potential analysis
+    # Add required columns for compatibility
+    df['QB'] = QB_shifted  # Use shifted signal!
+    df['Signal'] = avg_
+    df['TPI'] = QB_shifted  # TPI also uses shifted signal
+    df['Momentum'] = df['close'].pct_change(1)
+    
+    # Store intermediate values for analysis
     df['RSI'] = rsi
     df['ZScore'] = zscore
     df['ROC'] = roc
     
     result = df.dropna()
-    print(f"[DEBUG QB] Computed QB indicators, {len(result)} valid rows")
+    print(f"[DEBUG QB NO-REPAINT] Computed QB indicators with signal shift, {len(result)} valid rows")
     return result
