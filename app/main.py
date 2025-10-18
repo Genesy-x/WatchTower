@@ -240,28 +240,45 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
             "NetProfit": strategy_metrics["total_return_%"]
         }
 
+        # Convert all numpy types to native Python types for JSON serialization
+        metrics_table_clean = {
+            k: float(v) if isinstance(v, (np.floating, np.integer)) else v 
+            for k, v in metrics_table.items()
+        }
+        
         response = {
-            "metrics": metrics_table,
-            "final_equity_filtered": strategy_equity.iloc[-1] if not strategy_equity.empty else 0,
-            "switches": switches_filtered,
+            "metrics": metrics_table_clean,
+            "final_equity_filtered": float(strategy_equity.iloc[-1]) if not strategy_equity.empty else 0,
+            "switches": int(switches_filtered),
             "current_allocation": current_alloc,
             "top3": top3,
             "asset_table": asset_table,
-            "equity_curve_filtered": strategy_equity.to_dict() if not strategy_equity.empty else {},
-            "buy_hold_equity": benchmark_equity.to_dict() if not benchmark_equity.empty else {}
+            "equity_curve_filtered": {str(k): float(v) for k, v in strategy_equity.items()} if not strategy_equity.empty else {},
+            "buy_hold_equity": {str(k): float(v) for k, v in benchmark_equity.items()} if not benchmark_equity.empty else {}
         }
 
         # Get end_date BEFORE any conversions
         end_date = equity_filtered.index[-1].to_pydatetime() if not equity_filtered.empty else datetime.now()
 
         db = SessionLocal()
+        
+        # Convert all data to JSON-serializable format
+        equity_dict = {str(k): float(v) for k, v in strategy_equity.items()}
+        alloc_dict = {str(k): str(v) for k, v in zip(equity_filtered.index, alloc_hist_filtered)}
+        
+        # Convert numpy types in metrics to native Python types
+        metrics_serializable = {
+            k: float(v) if isinstance(v, (np.floating, np.integer)) else v 
+            for k, v in metrics_table.items()
+        }
+        
         run = BacktestRun(
             start_date=pd.to_datetime(start_date).to_pydatetime(),
             end_date=end_date,
-            metrics=metrics_table,
-            equity_curve=strategy_equity.to_dict() if not strategy_equity.empty else {},
-            alloc_hist={str(k): v for k, v in zip(equity_filtered.index, alloc_hist_filtered)},
-            switches=switches_filtered
+            metrics=metrics_serializable,
+            equity_curve=equity_dict,
+            alloc_hist=alloc_dict,
+            switches=int(switches_filtered)
         )
         db.add(run)
         db.commit()
