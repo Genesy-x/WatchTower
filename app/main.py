@@ -397,6 +397,13 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
         traceback.print_exc()
         return {"error": str(e)}
 
+@app.get("/backfill-all")
+async def backfill_all():
+    from app.data import backfill_historical_data
+    for symbol in ["BTCUSDT", "ETHUSDT", "SOLUSDT", "PAXGUSDT"]:
+        backfill_historical_data(symbol, "2023-01-01")
+    return {"status": "Backfilled all assets from 2023"}
+
 # Scheduler for daily updates post-UTC close
 def daily_update():
     """
