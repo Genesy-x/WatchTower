@@ -46,39 +46,39 @@ def rotate_equity_qb(assets: dict, gold_df: pd.DataFrame, start_date: str = None
     # Prepare data
     qb_signals = {}
     momentum_data = {}
-    returns_data = {}
+    close_prices = {}
     
     for name, df in assets.items():
         df_reindexed = df.reindex(common_index)
-        qb_signals[name] = df_reindexed['QB'].fillna(0)  # Use QB instead of TPI
+        qb_signals[name] = df_reindexed['QB'].fillna(0)  # Already shifted in indicator calculation
         momentum_data[name] = df_reindexed['Momentum'].fillna(0)
-        returns_data[name] = df_reindexed['close'].pct_change().fillna(0)
+        close_prices[name] = df_reindexed['close'].fillna(method='ffill')  # Store actual close prices
     
     # Add GOLD
     if gold_df is not None and not gold_df.empty:
         gold_reindexed = gold_df.reindex(common_index)
         gold_qb = gold_reindexed['QB'].fillna(0)
-        gold_returns = gold_reindexed['close'].pct_change().fillna(0)
+        gold_close = gold_reindexed['close'].fillna(method='ffill')
     else:
         gold_qb = pd.Series(0, index=common_index)
-        gold_returns = pd.Series(0, index=common_index)
+        gold_close = pd.Series(1, index=common_index)
     
     # Convert to DataFrames
     qb_df = pd.DataFrame(qb_signals)
     momentum_df = pd.DataFrame(momentum_data)
-    returns_df = pd.DataFrame(returns_data)
+    close_df = pd.DataFrame(close_prices)
     
     # Initialize tracking
     equity = pd.Series(1.0, index=common_index, name='Equity')
     current_alloc = None
     alloc_hist = []
     switches = 0
+    previous_close = {}  # Track previous day's close for each asset
     
     for i in range(len(common_index)):
         date = common_index[i]
         
         # QB signals are already shifted in the indicator calculation
-        # So we can use current index directly - it represents the signal from previous day
         current_qb = qb_df.iloc[i]
         current_momentum = momentum_df.iloc[i]
         
@@ -95,20 +95,32 @@ def rotate_equity_qb(assets: dict, gold_df: pd.DataFrame, start_date: str = None
                 current_alloc = top_asset
                 logger.info(f"Switch at {date}: {top_asset} (QB=1, Momentum={bullish_momentum[top_asset]:.4f})")
             
-            # Get return from CURRENT day
-            period_return = returns_df.iloc[i][top_asset]
+            # Calculate return properly: (today_close - yesterday_close) / yesterday_close
+            if i > 0 and top_asset in previous_close:
+                today_close = close_df.iloc[i][top_asset]
+                yesterday_close = previous_close[top_asset]
+                period_return = (today_close - yesterday_close) / yesterday_close if yesterday_close != 0 else 0
+            else:
+                period_return = 0  # First day, no return
+            
             alloc = top_asset
             
         else:
-            # No bullish crypto assets
-            # Check if GOLD is bullish
+            # No bullish crypto assets - check GOLD
             if use_gold and gold_qb.iloc[i] == 1:
                 if current_alloc != 'GOLD':
                     switches += 1
                     current_alloc = 'GOLD'
                     logger.info(f"Switch at {date}: GOLD (No bullish crypto, GOLD QB=1)")
                 
-                period_return = gold_returns.iloc[i]
+                # Calculate GOLD return
+                if i > 0 and 'GOLD' in previous_close:
+                    today_close = gold_close.iloc[i]
+                    yesterday_close = previous_close['GOLD']
+                    period_return = (today_close - yesterday_close) / yesterday_close if yesterday_close != 0 else 0
+                else:
+                    period_return = 0
+                
                 alloc = 'GOLD'
             else:
                 # Go to CASH
@@ -125,6 +137,10 @@ def rotate_equity_qb(assets: dict, gold_df: pd.DataFrame, start_date: str = None
             equity.iloc[i] = equity.iloc[i-1] * (1 + period_return)
         
         alloc_hist.append(alloc)
+        
+        # Store today's close prices for next iteration
+        previous_close = {asset: close_df.iloc[i][asset] for asset in close_df.columns}
+        previous_close['GOLD'] = gold_close.iloc[i]
     
     print(f"[DEBUG QB] Total switches: {switches}")
     print(f"[DEBUG QB] Final allocation: {alloc_hist[-1] if alloc_hist else 'None'}")
