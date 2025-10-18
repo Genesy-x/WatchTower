@@ -8,7 +8,7 @@ COINDESK_API_KEY = "74e1e197fe44b98d6c1cfd466095fa9fa4c2a57edea008936b2ac1d5ad51
 COINDESK_BASE = "https://data-api.coindesk.com/spot/v1/historical/days"
 
 
-def fetch_historical_ohlc_btc(start: str = "2024-01-01", end: str = datetime.now().strftime("%Y-%m-%d"), limit: int = 700, aggregate: int = 1):
+def fetch_historical_ohlc_btc(start: str = "2023-01-01", end: str = datetime.now().strftime("%Y-%m-%d"), limit: int = 700, aggregate: int = 1):
    """Fetch daily historical OHLCV data for BTC-USDT on Binance."""
    params = {
        "market": "binance",
@@ -39,7 +39,7 @@ def fetch_historical_ohlc_btc(start: str = "2024-01-01", end: str = datetime.now
            df = pd.DataFrame(data_list)
            df["timestamp"] = pd.to_datetime(df["TIMESTAMP"], unit="s")
            df.set_index("timestamp", inplace=True)
-           df = df[df.index >= pd.Timestamp("2024-01-01")]
+           df = df[df.index >= pd.Timestamp("2023-01-01")]
            df = df[["OPEN", "HIGH", "LOW", "CLOSE", "VOLUME"]]
            df.columns = ["open", "high", "low", "close", "volume"]
            print(f"[SUCCESS] Fetched {len(df)} rows for BTC-USDT from {df.index.min().date()} to {df.index.max().date()}")
@@ -51,7 +51,7 @@ def fetch_historical_ohlc_btc(start: str = "2024-01-01", end: str = datetime.now
    return pd.DataFrame()
 
 
-def fetch_historical_ohlc_eth(start: str = "2024-01-01", end: str = datetime.now().strftime("%Y-%m-%d"), limit: int = 700, aggregate: int = 1):
+def fetch_historical_ohlc_eth(start: str = "2023-01-01", end: str = datetime.now().strftime("%Y-%m-%d"), limit: int = 700, aggregate: int = 1):
    """Fetch daily historical OHLCV data for ETH-USDT on Binance."""
    params = {
        "market": "binance",
@@ -82,7 +82,7 @@ def fetch_historical_ohlc_eth(start: str = "2024-01-01", end: str = datetime.now
            df = pd.DataFrame(data_list)
            df["timestamp"] = pd.to_datetime(df["TIMESTAMP"], unit="s")
            df.set_index("timestamp", inplace=True)
-           df = df[df.index >= pd.Timestamp("2024-01-01")]
+           df = df[df.index >= pd.Timestamp("2023-01-01")]
            df = df[["OPEN", "HIGH", "LOW", "CLOSE", "VOLUME"]]
            df.columns = ["open", "high", "low", "close", "volume"]
            print(f"[SUCCESS] Fetched {len(df)} rows for ETH-USDT from {df.index.min().date()} to {df.index.max().date()}")
@@ -94,7 +94,7 @@ def fetch_historical_ohlc_eth(start: str = "2024-01-01", end: str = datetime.now
    return pd.DataFrame()
 
 
-def fetch_historical_ohlc_sol(start: str = "2024-01-01", end: str = datetime.now().strftime("%Y-%m-%d"), limit: int = 700, aggregate: int = 1):
+def fetch_historical_ohlc_sol(start: str = "2023-01-01", end: str = datetime.now().strftime("%Y-%m-%d"), limit: int = 700, aggregate: int = 1):
    """Fetch daily historical OHLCV data for SOL-USDT on Binance."""
    params = {
        "market": "binance",
@@ -125,7 +125,7 @@ def fetch_historical_ohlc_sol(start: str = "2024-01-01", end: str = datetime.now
            df = pd.DataFrame(data_list)
            df["timestamp"] = pd.to_datetime(df["TIMESTAMP"], unit="s")
            df.set_index("timestamp", inplace=True)
-           df = df[df.index >= pd.Timestamp("2024-01-01")]
+           df = df[df.index >= pd.Timestamp("2023-01-01")]
            df = df[["OPEN", "HIGH", "LOW", "CLOSE", "VOLUME"]]
            df.columns = ["open", "high", "low", "close", "volume"]
            print(f"[SUCCESS] Fetched {len(df)} rows for SOL-USDT from {df.index.min().date()} to {df.index.max().date()}")
@@ -137,7 +137,7 @@ def fetch_historical_ohlc_sol(start: str = "2024-01-01", end: str = datetime.now
    return pd.DataFrame()
 
 
-def fetch_historical_ohlc_paxg(start: str = "2024-01-01", end: str = datetime.now().strftime("%Y-%m-%d"), limit: int = 700, aggregate: int = 1):
+def fetch_historical_ohlc_paxg(start: str = "2023-01-01", end: str = datetime.now().strftime("%Y-%m-%d"), limit: int = 700, aggregate: int = 1):
    """Fetch daily historical OHLCV data for PAXG-USDT on Binance."""
    params = {
        "market": "binance",
@@ -168,7 +168,7 @@ def fetch_historical_ohlc_paxg(start: str = "2024-01-01", end: str = datetime.no
            df = pd.DataFrame(data_list)
            df["timestamp"] = pd.to_datetime(df["TIMESTAMP"], unit="s")
            df.set_index("timestamp", inplace=True)
-           df = df[df.index >= pd.Timestamp("2024-01-01")]
+           df = df[df.index >= pd.Timestamp("2023-01-01")]
            df = df[["OPEN", "HIGH", "LOW", "CLOSE", "VOLUME"]]
            df.columns = ["open", "high", "low", "close", "volume"]
            print(f"[SUCCESS] Fetched {len(df)} rows for PAXG-USDT from {df.index.min().date()} to {df.index.max().date()}")
