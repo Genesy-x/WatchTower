@@ -78,12 +78,23 @@ def rotate_equity_qb(assets: dict, gold_df: pd.DataFrame, start_date: str = None
     for i in range(len(common_index)):
         date = common_index[i]
         
+        # Skip first row after shift (QB will be NaN/0)
+        if i == 0:
+            alloc_hist.append('CASH')
+            previous_close = {asset: close_df.iloc[i][asset] for asset in close_df.columns}
+            previous_close['GOLD'] = gold_close.iloc[i]
+            continue
+        
         # QB signals are already shifted in the indicator calculation
         current_qb = qb_df.iloc[i]
         current_momentum = momentum_df.iloc[i]
         
         # Find assets with bullish signal (QB = 1)
         bullish_assets = current_qb[current_qb == 1]
+        
+        # Debug: print first few signals
+        if i < 5:
+            print(f"[DEBUG QB] Day {i} ({date}): QB signals = {current_qb.to_dict()}, Bullish = {list(bullish_assets.index)}")
         
         if not bullish_assets.empty:
             # Among bullish assets, pick the one with highest momentum
@@ -93,15 +104,16 @@ def rotate_equity_qb(assets: dict, gold_df: pd.DataFrame, start_date: str = None
             if top_asset != current_alloc:
                 switches += 1
                 current_alloc = top_asset
-                logger.info(f"Switch at {date}: {top_asset} (QB=1, Momentum={bullish_momentum[top_asset]:.4f})")
+                if i < 10 or switches < 5:  # Debug first 10 days or first 5 switches
+                    logger.info(f"Switch at {date}: {top_asset} (QB=1, Momentum={bullish_momentum[top_asset]:.4f})")
             
-            # Calculate return properly: (today_close - yesterday_close) / yesterday_close
-            if i > 0 and top_asset in previous_close:
-                today_close = close_df.iloc[i][top_asset]
-                yesterday_close = previous_close[top_asset]
-                period_return = (today_close - yesterday_close) / yesterday_close if yesterday_close != 0 else 0
-            else:
-                period_return = 0  # First day, no return
+            # Calculate return properly
+            today_close = close_df.iloc[i][top_asset]
+            yesterday_close = previous_close.get(top_asset, today_close)
+            period_return = (today_close - yesterday_close) / yesterday_close if yesterday_close != 0 else 0
+            
+            if i < 5:
+                print(f"[DEBUG QB] Allocated to {top_asset}: Yesterday={yesterday_close:.2f}, Today={today_close:.2f}, Return={period_return*100:.2f}%")
             
             alloc = top_asset
             
@@ -111,15 +123,16 @@ def rotate_equity_qb(assets: dict, gold_df: pd.DataFrame, start_date: str = None
                 if current_alloc != 'GOLD':
                     switches += 1
                     current_alloc = 'GOLD'
-                    logger.info(f"Switch at {date}: GOLD (No bullish crypto, GOLD QB=1)")
+                    if i < 10 or switches < 5:
+                        logger.info(f"Switch at {date}: GOLD (No bullish crypto, GOLD QB=1)")
                 
                 # Calculate GOLD return
-                if i > 0 and 'GOLD' in previous_close:
-                    today_close = gold_close.iloc[i]
-                    yesterday_close = previous_close['GOLD']
-                    period_return = (today_close - yesterday_close) / yesterday_close if yesterday_close != 0 else 0
-                else:
-                    period_return = 0
+                today_close = gold_close.iloc[i]
+                yesterday_close = previous_close.get('GOLD', today_close)
+                period_return = (today_close - yesterday_close) / yesterday_close if yesterday_close != 0 else 0
+                
+                if i < 5:
+                    print(f"[DEBUG QB] Allocated to GOLD: Yesterday={yesterday_close:.2f}, Today={today_close:.2f}, Return={period_return*100:.2f}%")
                 
                 alloc = 'GOLD'
             else:
@@ -127,14 +140,21 @@ def rotate_equity_qb(assets: dict, gold_df: pd.DataFrame, start_date: str = None
                 if current_alloc != 'CASH':
                     switches += 1
                     current_alloc = 'CASH'
-                    logger.info(f"Switch at {date}: CASH (No bullish signals)")
+                    if i < 10 or switches < 5:
+                        logger.info(f"Switch at {date}: CASH (No bullish signals)")
                 
                 period_return = 0
+                
+                if i < 5:
+                    print(f"[DEBUG QB] Allocated to CASH: Return=0%")
+                
                 alloc = 'CASH'
         
         # Update equity
-        if i > 0:
-            equity.iloc[i] = equity.iloc[i-1] * (1 + period_return)
+        equity.iloc[i] = equity.iloc[i-1] * (1 + period_return)
+        
+        if i < 5:
+            print(f"[DEBUG QB] Equity: {equity.iloc[i-1]:.4f} * (1 + {period_return:.4f}) = {equity.iloc[i]:.4f}\n")
         
         alloc_hist.append(alloc)
         
