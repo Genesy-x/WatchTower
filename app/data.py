@@ -16,7 +16,7 @@ def get_latest_timestamp(instrument: str):
     finally:
         db.close()
 
-def fetch_ohlc_generic(symbol: str, market_pair: str, start: str = None, end: str = None, limit: int = 1):
+def fetch_ohlc_generic(symbol: str, market_pair: str, start: str = None, end: str = None, limit: int = 1, force_start: bool = False):
     """
     Generic fetch function for any symbol
     
@@ -26,10 +26,16 @@ def fetch_ohlc_generic(symbol: str, market_pair: str, start: str = None, end: st
         start: Start date (YYYY-MM-DD)
         end: End date (YYYY-MM-DD)
         limit: Max rows to fetch (use 1 for daily update, 1000 for backfill)
+        force_start: If True, use provided start date exactly. If False, use latest from DB + 1 day
     """
-    if start is None:
+    if start is None or not force_start:
+        # Auto-detect: start from latest date in DB
         latest = get_latest_timestamp(symbol)
         start = (latest + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+        print(f"[AUTO-DETECT] Fetching {symbol} from {start} (latest in DB: {latest.date()})")
+    else:
+        # Use provided start date exactly
+        print(f"[FORCE-START] Fetching {symbol} from {start}")
     
     if end is None:
         end = datetime.now().strftime("%Y-%m-%d")
@@ -78,17 +84,17 @@ def fetch_ohlc_generic(symbol: str, market_pair: str, start: str = None, end: st
     return pd.DataFrame()
 
 # Wrapper functions for each asset
-def fetch_historical_ohlc_btc(start: str = None, end: str = None, limit: int = 1):
-    return fetch_ohlc_generic("BTC", "BTC-USDT", start, end, limit)
+def fetch_historical_ohlc_btc(start: str = None, end: str = None, limit: int = 1, force_start: bool = False):
+    return fetch_ohlc_generic("BTC", "BTC-USDT", start, end, limit, force_start)
 
-def fetch_historical_ohlc_eth(start: str = None, end: str = None, limit: int = 1):
-    return fetch_ohlc_generic("ETH", "ETH-USDT", start, end, limit)
+def fetch_historical_ohlc_eth(start: str = None, end: str = None, limit: int = 1, force_start: bool = False):
+    return fetch_ohlc_generic("ETH", "ETH-USDT", start, end, limit, force_start)
 
-def fetch_historical_ohlc_sol(start: str = None, end: str = None, limit: int = 1):
-    return fetch_ohlc_generic("SOL", "SOL-USDT", start, end, limit)
+def fetch_historical_ohlc_sol(start: str = None, end: str = None, limit: int = 1, force_start: bool = False):
+    return fetch_ohlc_generic("SOL", "SOL-USDT", start, end, limit, force_start)
 
-def fetch_historical_ohlc_xaut(start: str = None, end: str = None, limit: int = 1):
-    return fetch_ohlc_generic("PAXG", "PAXG-USDT", start, end, limit)
+def fetch_historical_ohlc_xaut(start: str = None, end: str = None, limit: int = 1, force_start: bool = False):
+    return fetch_ohlc_generic("PAXG", "PAXG-USDT", start, end, limit, force_start)
 
 def fetch_market_data(binance_symbol: str, timeframe: str = "1d", limit: int = 1):
     """
