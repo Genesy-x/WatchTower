@@ -33,13 +33,47 @@ ALL_ASSETS = [
     ("PAXGUSDT", "pax-gold")
 ]
 
-def store_single_asset(db, name, timeframe: str = "1d", limit: int = 1):
+def store_single_asset(db, name, timeframe: str = "1d", limit: int = 1, start_date: str = None):
+    """
+    Store OHLCV data for a single asset
+    
+    Args:
+        db: Database session
+        name: Asset symbol (e.g., "BTCUSDT")
+        timeframe: Timeframe (default "1d")
+        limit: Number of rows to fetch (1 for daily, 100+ for backfill)
+        start_date: Optional start date for backfill (YYYY-MM-DD)
+    """
     try:
-        market_data = fetch_market_data(name, timeframe, limit)
-        ohlcv = market_data["ohlcv"]
+        # Fetch data with optional parameters
+        if start_date:
+            # For backfilling with custom start date
+            from app.data import fetch_ohlc_generic
+            instrument = name.replace("USDT", "")
+            pair_map = {
+                "BTC": "BTC-USDT",
+                "ETH": "ETH-USDT", 
+                "SOL": "SOL-USDT",
+                "PAXG": "PAXG-USDT"
+            }
+            market_data = fetch_ohlc_generic(
+                instrument, 
+                pair_map[instrument], 
+                start=start_date, 
+                end=None, 
+                limit=min(limit, 500)  # Cap at 500 to avoid timeout
+            )
+            ohlcv = market_data
+        else:
+            # Normal daily fetch
+            market_data = fetch_market_data(name, timeframe, limit)
+            ohlcv = market_data["ohlcv"]
+        
         instrument = name.replace("USDT", "")
-        print(f"Attempting to store for {instrument}: {ohlcv.head() if not ohlcv.empty else 'No new data'}")
+        print(f"Attempting to store for {instrument}: {len(ohlcv)} rows")
+        
         if not ohlcv.empty:
+            stored_count = 0
             for index, row in ohlcv.iterrows():
                 existing = db.query(OHLCVData).filter(
                     OHLCVData.instrument == instrument,
@@ -56,15 +90,18 @@ def store_single_asset(db, name, timeframe: str = "1d", limit: int = 1):
                         volume=float(row['volume'])
                     )
                     db.add(record)
+                    stored_count += 1
+            
             db.commit()
-            print(f"Successfully committed {len(ohlcv)} new rows for {instrument} to Neon")
+            print(f"Successfully committed {stored_count} new rows for {instrument} to Neon")
+            return {"success": True, "stored": stored_count, "total": len(ohlcv)}
         else:
             print(f"[WARNING] No new data for {instrument}")
-        return True
+            return {"success": False, "error": "No data returned"}
     except Exception as e:
         print(f"[ERROR] Failed to store {instrument}: {e}")
         db.rollback()
-        return False
+        return {"success": False, "error": str(e)}
 
 def query_neon_with_retry(instrument, max_retries=3, delay=5):
     """Query Neon with retries for SSL issues."""
@@ -97,32 +134,63 @@ async def root():
     return {"status": "healthy"}
 
 @app.get("/store-btc")
-async def store_btc():
+async def store_btc(limit: int = 1, start_date: str = None):
+    """
+    Store BTC data. 
+    Examples:
+      /store-btc                           # Store today's data
+      /store-btc?limit=100                 # Store last 100 days
+      /store-btc?start_date=2023-01-01&limit=365  # Store from date
+    """
     db = SessionLocal()
-    success = store_single_asset(db, "BTCUSDT")
+    result = store_single_asset(db, "BTCUSDT", limit=limit, start_date=start_date)
     db.close()
-    return {"status": "BTC data stored" if success else "Failed to store BTC data"}
+    return result
 
 @app.get("/store-eth")
-async def store_eth():
+async def store_eth(limit: int = 1, start_date: str = None):
+    """Store ETH data"""
     db = SessionLocal()
-    success = store_single_asset(db, "ETHUSDT")
+    result = store_single_asset(db, "ETHUSDT", limit=limit, start_date=start_date)
     db.close()
-    return {"status": "ETH data stored" if success else "Failed to store ETH data"}
+    return result
 
 @app.get("/store-sol")
-async def store_sol():
+async def store_sol(limit: int = 1, start_date: str = None):
+    """Store SOL data"""
     db = SessionLocal()
-    success = store_single_asset(db, "SOLUSDT")
+    result = store_single_asset(db, "SOLUSDT", limit=limit, start_date=start_date)
     db.close()
-    return {"status": "SOL data stored" if success else "Failed to store SOL data"}
+    return result
 
 @app.get("/store-paxg")
-async def store_paxg():
+async def store_paxg(limit: int = 1, start_date: str = None):
+    """Store PAXG data"""
     db = SessionLocal()
-    success = store_single_asset(db, "PAXGUSDT")
+    result = store_single_asset(db, "PAXGUSDT", limit=limit, start_date=start_date)
     db.close()
-    return {"status": "PAXG data stored" if success else "Failed to store PAXG data"}
+    return result
+
+@app.get("/store-all")
+async def store_all(limit: int = 1, start_date: str = None):
+    """
+    Store data for all assets at once
+    WARNING: May timeout on large limits. Use individual endpoints for backfilling.
+    
+    Examples:
+      /store-all                           # Store today for all
+      /store-all?limit=30                  # Store last 30 days for all
+    """
+    db = SessionLocal()
+    results = {}
+    
+    for symbol, _ in ALL_ASSETS:
+        print(f"[STORE-ALL] Processing {symbol}...")
+        result = store_single_asset(db, symbol, limit=limit, start_date=start_date)
+        results[symbol] = result
+    
+    db.close()
+    return {"status": "completed", "results": results}
 
 @app.get("/backtest")
 async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets: int = 3,
@@ -396,13 +464,6 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
         import traceback
         traceback.print_exc()
         return {"error": str(e)}
-
-@app.get("/backfill-all")
-async def backfill_all():
-    from app.data import backfill_historical_data
-    for symbol in ["BTCUSDT", "ETHUSDT", "SOLUSDT", "PAXGUSDT"]:
-        backfill_historical_data(symbol, "2023-01-01")
-    return {"status": "Backfilled all assets from 2023"}
 
 # Scheduler for daily updates post-UTC close
 def daily_update():
