@@ -13,7 +13,7 @@ def rotate_equity_qb(assets: dict, gold_df: pd.DataFrame, start_date: str = None
     QB-specific rotation: Uses QB signal instead of momentum ranking
     
     Logic:
-    - Find assets with QB = 1 (bullish signal)
+    - Find assets with QB = 1 (bullish signal) $
     - Rank those by score/momentum
     - Allocate to strongest bullish asset
     - If no bullish assets, go to GOLD if its QB = 1, else CASH
