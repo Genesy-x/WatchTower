@@ -399,15 +399,49 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
 
 # Scheduler for daily updates post-UTC close
 def daily_update():
+    """
+    Runs daily at 00:05 UTC (5 minutes after market close)
+    Fetches latest data and stores in Neon
+    """
+    print(f"[SCHEDULER] Daily update started at {datetime.utcnow()} UTC")
     db = SessionLocal()
-    for name, _ in ALL_ASSETS:
-        store_single_asset(db, name)
-    db.close()
-    print(f"Daily update completed at {datetime.utcnow()} UTC")
+    
+    try:
+        for symbol, _ in ALL_ASSETS:
+            print(f"[SCHEDULER] Fetching new data for {symbol}...")
+            success = store_single_asset(db, symbol, timeframe="1d", limit=1)
+            
+            if success:
+                print(f"[SCHEDULER] ✓ {symbol} updated successfully")
+            else:
+                print(f"[SCHEDULER] ✗ {symbol} update failed")
+        
+        print(f"[SCHEDULER] Daily update completed at {datetime.utcnow()} UTC")
+        print(f"[SCHEDULER] Next update scheduled for tomorrow 00:05 UTC")
+        
+    except Exception as e:
+        print(f"[SCHEDULER ERROR] Daily update failed: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        db.close()
 
-scheduler = BackgroundScheduler()
-scheduler.add_job(daily_update, 'cron', hour=0, minute=5, timezone='UTC')  # 5 mins after UTC 00:00
+scheduler = BackgroundScheduler(timezone='UTC')
+scheduler.add_job(
+    daily_update, 
+    'cron', 
+    hour=0, 
+    minute=5,  # 5 minutes after UTC midnight
+    timezone='UTC'
+)
 scheduler.start()
+
+# Optional: Run update on startup to ensure we have latest data
+print("[STARTUP] Checking for missing data...")
+# Uncomment the line below to fetch data on startup
+# daily_update()
+
+print("[STARTUP] Scheduler initialized. Daily updates at 00:05 UTC")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
