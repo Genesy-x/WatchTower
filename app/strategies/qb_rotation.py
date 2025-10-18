@@ -1,6 +1,6 @@
 """
-QB Strategy Rotation Logic
-Different from momentum rotation - uses signal-based allocation
+QB Strategy Rotation Logic - FIXED FOR REPAINTING
+Uses signal-based allocation with proper lagging
 """
 import pandas as pd
 import numpy as np
@@ -10,22 +10,9 @@ logger = logging.getLogger(__name__)
 
 def rotate_equity_qb(assets: dict, gold_df: pd.DataFrame, start_date: str = None, use_gold: bool = True) -> tuple:
     """
-    QB-specific rotation: Uses QB signal instead of momentum ranking
+    QB-specific rotation with NO REPAINTING
     
-    Logic:
-    - Find assets with QB = 1 (bullish signal) $
-    - Rank those by score/momentum
-    - Allocate to strongest bullish asset
-    - If no bullish assets, go to GOLD if its QB = 1, else CASH
-    
-    Args:
-        assets: dict of {name: df} with QB column
-        gold_df: DataFrame with gold data and QB signal
-        start_date: backtest start date
-        use_gold: whether to use gold as safe haven
-    
-    Returns:
-        equity, alloc_hist, switches
+    Key fix: We hold an asset and earn its return, THEN decide what to hold next day
     """
     # Get common index across all assets
     all_indices = [df.index for df in assets.values()]
@@ -50,9 +37,9 @@ def rotate_equity_qb(assets: dict, gold_df: pd.DataFrame, start_date: str = None
     
     for name, df in assets.items():
         df_reindexed = df.reindex(common_index)
-        qb_signals[name] = df_reindexed['QB'].fillna(0)  # Already shifted in indicator calculation
+        qb_signals[name] = df_reindexed['QB'].fillna(0)
         momentum_data[name] = df_reindexed['Momentum'].fillna(0)
-        close_prices[name] = df_reindexed['close'].fillna(method='ffill')  # Store actual close prices
+        close_prices[name] = df_reindexed['close'].fillna(method='ffill')
     
     # Add GOLD
     if gold_df is not None and not gold_df.empty:
@@ -70,97 +57,59 @@ def rotate_equity_qb(assets: dict, gold_df: pd.DataFrame, start_date: str = None
     
     # Initialize tracking
     equity = pd.Series(1.0, index=common_index, name='Equity')
-    current_alloc = None
+    holding = None  # What we're CURRENTLY holding
     alloc_hist = []
     switches = 0
-    previous_close = {}  # Track previous day's close for each asset
     
     for i in range(len(common_index)):
         date = common_index[i]
         
-        # Skip first row after shift (QB will be NaN/0)
+        # STEP 1: Calculate return from what we HELD during this period
         if i == 0:
-            alloc_hist.append('CASH')
-            previous_close = {asset: close_df.iloc[i][asset] for asset in close_df.columns}
-            previous_close['GOLD'] = gold_close.iloc[i]
-            continue
+            period_return = 0  # No return on first day
+        elif holding == 'CASH':
+            period_return = 0
+        elif holding == 'GOLD':
+            period_return = (gold_close.iloc[i] - gold_close.iloc[i-1]) / gold_close.iloc[i-1]
+        elif holding in close_df.columns:
+            period_return = (close_df.iloc[i][holding] - close_df.iloc[i-1][holding]) / close_df.iloc[i-1][holding]
+        else:
+            period_return = 0
         
-        # QB signals are already shifted in the indicator calculation
+        # Update equity based on what we HELD
+        if i > 0:
+            equity.iloc[i] = equity.iloc[i-1] * (1 + period_return)
+        
+        # Debug first few days
+        if i < 5:
+            print(f"[DEBUG QB] Day {i} ({date}): HELD {holding}, Return={period_return*100:.2f}%, Equity={equity.iloc[i]:.4f}")
+        
+        # STEP 2: Decide what to hold TOMORROW based on TODAY'S signal
         current_qb = qb_df.iloc[i]
         current_momentum = momentum_df.iloc[i]
-        
-        # Find assets with bullish signal (QB = 1)
         bullish_assets = current_qb[current_qb == 1]
         
-        # Debug: print first few signals
-        if i < 5:
-            print(f"[DEBUG QB] Day {i} ({date}): QB signals = {current_qb.to_dict()}, Bullish = {list(bullish_assets.index)}")
-        
         if not bullish_assets.empty:
-            # Among bullish assets, pick the one with highest momentum
+            # Among bullish assets, pick strongest by momentum
             bullish_momentum = current_momentum[bullish_assets.index]
-            top_asset = bullish_momentum.idxmax()
-            
-            if top_asset != current_alloc:
-                switches += 1
-                current_alloc = top_asset
-                if i < 10 or switches < 5:  # Debug first 10 days or first 5 switches
-                    logger.info(f"Switch at {date}: {top_asset} (QB=1, Momentum={bullish_momentum[top_asset]:.4f})")
-            
-            # Calculate return properly
-            today_close = close_df.iloc[i][top_asset]
-            yesterday_close = previous_close.get(top_asset, today_close)
-            period_return = (today_close - yesterday_close) / yesterday_close if yesterday_close != 0 else 0
-            
-            if i < 5:
-                print(f"[DEBUG QB] Allocated to {top_asset}: Yesterday={yesterday_close:.2f}, Today={today_close:.2f}, Return={period_return*100:.2f}%")
-            
-            alloc = top_asset
-            
+            next_holding = bullish_momentum.idxmax()
+        elif use_gold and gold_qb.iloc[i] == 1:
+            next_holding = 'GOLD'
         else:
-            # No bullish crypto assets - check GOLD
-            if use_gold and gold_qb.iloc[i] == 1:
-                if current_alloc != 'GOLD':
-                    switches += 1
-                    current_alloc = 'GOLD'
-                    if i < 10 or switches < 5:
-                        logger.info(f"Switch at {date}: GOLD (No bullish crypto, GOLD QB=1)")
-                
-                # Calculate GOLD return
-                today_close = gold_close.iloc[i]
-                yesterday_close = previous_close.get('GOLD', today_close)
-                period_return = (today_close - yesterday_close) / yesterday_close if yesterday_close != 0 else 0
-                
-                if i < 5:
-                    print(f"[DEBUG QB] Allocated to GOLD: Yesterday={yesterday_close:.2f}, Today={today_close:.2f}, Return={period_return*100:.2f}%")
-                
-                alloc = 'GOLD'
-            else:
-                # Go to CASH
-                if current_alloc != 'CASH':
-                    switches += 1
-                    current_alloc = 'CASH'
-                    if i < 10 or switches < 5:
-                        logger.info(f"Switch at {date}: CASH (No bullish signals)")
-                
-                period_return = 0
-                
-                if i < 5:
-                    print(f"[DEBUG QB] Allocated to CASH: Return=0%")
-                
-                alloc = 'CASH'
+            next_holding = 'CASH'
         
-        # Update equity
-        equity.iloc[i] = equity.iloc[i-1] * (1 + period_return)
+        # Track switches
+        if next_holding != holding:
+            switches += 1
+            if i < 10:
+                logger.info(f"Switch at {date}: {holding} -> {next_holding}")
         
         if i < 5:
-            print(f"[DEBUG QB] Equity: {equity.iloc[i-1]:.4f} * (1 + {period_return:.4f}) = {equity.iloc[i]:.4f}\n")
+            print(f"[DEBUG QB] Signal says hold {next_holding} tomorrow (QB={current_qb.to_dict()})")
         
-        alloc_hist.append(alloc)
-        
-        # Store today's close prices for next iteration
-        previous_close = {asset: close_df.iloc[i][asset] for asset in close_df.columns}
-        previous_close['GOLD'] = gold_close.iloc[i]
+        # Update holding for next period
+        holding = next_holding
+        alloc_hist.append(holding)
     
     print(f"[DEBUG QB] Total switches: {switches}")
     print(f"[DEBUG QB] Final allocation: {alloc_hist[-1] if alloc_hist else 'None'}")
@@ -169,7 +118,7 @@ def rotate_equity_qb(assets: dict, gold_df: pd.DataFrame, start_date: str = None
     return equity.ffill(), alloc_hist, switches
 
 def compute_metrics(equity: pd.Series) -> dict:
-    """Same metrics calculation as original"""
+    """Same metrics calculation"""
     days = len(equity)
     if days < 2:
         return {"CAGR": 0.0, "Sharpe": 0.0, "Sortino": 0.0, "Omega": 0.0, "MaxDD": 0.0, "NetProfit": 0.0, "Days": days}

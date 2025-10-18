@@ -205,11 +205,15 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
         
         print(f"[DEBUG] Strategy metrics: {strategy_metrics}")
 
-        # Benchmark equity - simple buy and hold of the first asset
+        # Benchmark equity - simple buy and hold
         if benchmark in assets_data:
             benchmark_df = assets_data[benchmark].reindex(equity_filtered.index)
-            benchmark_returns = benchmark_df['close'].pct_change().fillna(0)
-            benchmark_equity = (1 + benchmark_returns).cumprod()
+            
+            # Calculate buy & hold properly: compare last close to first close
+            first_close = benchmark_df['close'].iloc[0]
+            benchmark_equity = benchmark_df['close'] / first_close  # Normalize to starting at 1.0
+            
+            print(f"[DEBUG] Benchmark ({benchmark}): First close = {first_close:.2f}, Last close = {benchmark_df['close'].iloc[-1]:.2f}")
         else:
             benchmark_equity = pd.Series(1.0, index=equity_filtered.index)
         
