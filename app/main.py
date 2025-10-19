@@ -30,8 +30,6 @@ ALL_ASSETS = [
     ("BTCUSDT", "bitcoin"),
     ("ETHUSDT", "ethereum"),
     ("SOLUSDT", "solana"),
-    ("SUIUSDT", "sui"),
-    ("BNBUSDT", "bnb"),
     ("PAXGUSDT", "pax-gold")
 ]
 
@@ -176,32 +174,6 @@ async def store_sol(limit: int = 365, start_date: str = None, end_date: str = No
     db.close()
     return result
 
-@app.get("/store-sui")
-async def store_sui(limit: int = 365, start_date: str = None, end_date: str = None):
-    """Store SUI data"""
-    db = SessionLocal()
-    if start_date and end_date and limit == 365:
-        from datetime import datetime
-        start = datetime.strptime(start_date, "%Y-%m-%d")
-        end = datetime.strptime(end_date, "%Y-%m-%d")
-        limit = min((end - start).days + 1, 500)
-    result = store_single_asset(db, "SUIUSDT", limit=limit, start_date=start_date, end_date=end_date)
-    db.close()
-    return result
-
-@app.get("/store-bnb")
-async def store_bnb(limit: int = 365, start_date: str = None, end_date: str = None):
-    """Store BNB data"""
-    db = SessionLocal()
-    if start_date and end_date and limit == 365:
-        from datetime import datetime
-        start = datetime.strptime(start_date, "%Y-%m-%d")
-        end = datetime.strptime(end_date, "%Y-%m-%d")
-        limit = min((end - start).days + 1, 500)
-    result = store_single_asset(db, "BNBUSDT", limit=limit, start_date=start_date, end_date=end_date)
-    db.close()
-    return result
-
 @app.get("/store-paxg")
 async def store_paxg(limit: int = 365, start_date: str = None, end_date: str = None):
     """Store PAXG data"""
@@ -237,7 +209,7 @@ async def store_all(limit: int = 1, start_date: str = None):
     return {"status": "completed", "results": results}
 
 @app.get("/backtest")
-async def backtest(start_date: str = "2023-01-01", limit: int = 1200, used_assets: int = 5,
+async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets: int = 3,
                    use_gold: bool = True, benchmark: str = "BTC", timeframe: str = "1d"):
     try:
         print("[DEBUG] Starting backtest")
@@ -408,7 +380,7 @@ async def backtest(start_date: str = "2023-01-01", limit: int = 1200, used_asset
         return {"error": str(e)}
 
 @app.get("/rebalance")
-async def rebalance(used_assets: int = 5, use_gold: bool = True, timeframe: str = "1d", limit: int = 1):
+async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str = "1d", limit: int = 1):
     try:
         print("[DEBUG] Starting rebalance")
         # Fetch data from Neon with retry
@@ -521,12 +493,16 @@ def daily_update():
     try:
         for symbol, _ in ALL_ASSETS:
             print(f"[SCHEDULER] Fetching new data for {symbol}...")
-            success = store_single_asset(db, symbol, timeframe="1d", limit=1)
+            result = store_single_asset(db, symbol, timeframe="1d", limit=1)
             
-            if success:
-                print(f"[SCHEDULER] ✓ {symbol} updated successfully")
+            if result.get("success"):
+                stored = result.get("stored", 0)
+                if stored > 0:
+                    print(f"[SCHEDULER] ✓ {symbol} updated successfully ({stored} new rows)")
+                else:
+                    print(f"[SCHEDULER] ○ {symbol} already up to date")
             else:
-                print(f"[SCHEDULER] ✗ {symbol} update failed")
+                print(f"[SCHEDULER] ✗ {symbol} update failed: {result.get('error', 'Unknown')}")
         
         print(f"[SCHEDULER] Daily update completed at {datetime.utcnow()} UTC")
         print(f"[SCHEDULER] Next update scheduled for tomorrow 00:05 UTC")
