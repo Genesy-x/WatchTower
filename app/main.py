@@ -144,40 +144,67 @@ async def root():
     return {"status": "healthy"}
 
 @app.get("/store-btc")
-async def store_btc(limit: int = 1, start_date: str = None, end_date: str = None):
+async def store_btc(limit: int = 365, start_date: str = None, end_date: str = None):
     """
     Store BTC data. 
     Examples:
-      /store-btc                                      # Store latest missing data
-      /store-btc?limit=100                            # Store last 100 days from DB
-      /store-btc?start_date=2023-01-01&limit=365      # Backfill from 2023-01-01
-      /store-btc?start_date=2023-01-01&end_date=2024-01-01  # Specific range
+      /store-btc                                           # Store latest missing data
+      /store-btc?start_date=2023-01-01&end_date=2023-12-31 # Backfill 2023 (auto limit=365)
+      /store-btc?start_date=2023-01-01&limit=500           # Backfill with custom limit
+    
+    NOTE: When using start_date, limit defaults to 365. Override if needed.
     """
     db = SessionLocal()
+    
+    # If start_date is provided but limit is default, increase limit for backfill
+    if start_date and limit == 365:
+        # Calculate days between dates if end_date provided
+        if end_date:
+            from datetime import datetime
+            start = datetime.strptime(start_date, "%Y-%m-%d")
+            end = datetime.strptime(end_date, "%Y-%m-%d")
+            limit = min((end - start).days + 1, 500)  # Cap at 500
+            print(f"[AUTO-LIMIT] Calculated limit={limit} for date range")
+    
     result = store_single_asset(db, "BTCUSDT", limit=limit, start_date=start_date, end_date=end_date)
     db.close()
     return result
 
 @app.get("/store-eth")
-async def store_eth(limit: int = 1, start_date: str = None, end_date: str = None):
+async def store_eth(limit: int = 365, start_date: str = None, end_date: str = None):
     """Store ETH data"""
     db = SessionLocal()
+    if start_date and end_date and limit == 365:
+        from datetime import datetime
+        start = datetime.strptime(start_date, "%Y-%m-%d")
+        end = datetime.strptime(end_date, "%Y-%m-%d")
+        limit = min((end - start).days + 1, 500)
     result = store_single_asset(db, "ETHUSDT", limit=limit, start_date=start_date, end_date=end_date)
     db.close()
     return result
 
 @app.get("/store-sol")
-async def store_sol(limit: int = 1, start_date: str = None, end_date: str = None):
+async def store_sol(limit: int = 365, start_date: str = None, end_date: str = None):
     """Store SOL data"""
     db = SessionLocal()
+    if start_date and end_date and limit == 365:
+        from datetime import datetime
+        start = datetime.strptime(start_date, "%Y-%m-%d")
+        end = datetime.strptime(end_date, "%Y-%m-%d")
+        limit = min((end - start).days + 1, 500)
     result = store_single_asset(db, "SOLUSDT", limit=limit, start_date=start_date, end_date=end_date)
     db.close()
     return result
 
 @app.get("/store-paxg")
-async def store_paxg(limit: int = 1, start_date: str = None, end_date: str = None):
+async def store_paxg(limit: int = 365, start_date: str = None, end_date: str = None):
     """Store PAXG data"""
     db = SessionLocal()
+    if start_date and end_date and limit == 365:
+        from datetime import datetime
+        start = datetime.strptime(start_date, "%Y-%m-%d")
+        end = datetime.strptime(end_date, "%Y-%m-%d")
+        limit = min((end - start).days + 1, 500)
     result = store_single_asset(db, "PAXGUSDT", limit=limit, start_date=start_date, end_date=end_date)
     db.close()
     return result
