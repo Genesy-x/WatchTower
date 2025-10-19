@@ -144,7 +144,7 @@ async def root():
     return {"status": "healthy"}
 
 @app.get("/store-btc")
-async def store_btc(limit: int = 365, start_date: str = None, end_date: str = None):
+async def store_btc(limit: int = 365, start_date: str = "2023-01-01", end_date: str = "2023-12-31"):
     """
     Store BTC data. 
     Examples:
