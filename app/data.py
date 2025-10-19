@@ -19,14 +19,6 @@ def get_latest_timestamp(instrument: str):
 def fetch_ohlc_generic(symbol: str, market_pair: str, start: str = None, end: str = None, limit: int = 1, force_start: bool = False):
     """
     Generic fetch function for any symbol
-    
-    Args:
-        symbol: Internal symbol (BTC, ETH, etc.)
-        market_pair: CoinDesk pair (BTC-USDT, ETH-USDT, etc.)
-        start: Start date (YYYY-MM-DD)
-        end: End date (YYYY-MM-DD)
-        limit: Max rows to fetch (use 1 for daily update, 1000 for backfill)
-        force_start: If True, use provided start date exactly. If False, use latest from DB + 1 day
     """
     if start is None or not force_start:
         # Auto-detect: start from latest date in DB
@@ -35,17 +27,21 @@ def fetch_ohlc_generic(symbol: str, market_pair: str, start: str = None, end: st
         print(f"[AUTO-DETECT] Fetching {symbol} from {start} (latest in DB: {latest.date()})")
     else:
         # Use provided start date exactly
-        print(f"[FORCE-START] Fetching {symbol} from {start}")
+        print(f"[FORCE-START] Fetching {symbol} from {start} to {end or 'today'}")
     
     if end is None:
         end = datetime.now().strftime("%Y-%m-%d")
+    
+    # IMPORTANT: CoinDesk API behavior
+    # If limit is provided, it fetches the LAST 'limit' rows before 'end' date
+    # NOT from 'start' to 'end'!
+    # Solution: Remove limit parameter when using specific date range
     
     params = {
         "market": "binance",
         "instrument": market_pair,
         "start": start,
         "end": end,
-        "limit": limit,
         "aggregate": 1,
         "fill": "true",
         "apply_mapping": "true",
@@ -53,6 +49,16 @@ def fetch_ohlc_generic(symbol: str, market_pair: str, start: str = None, end: st
         "groups": "ID,VOLUME,OHLC",
         "api_key": COINDESK_API_KEY
     }
+    
+    # Only add limit if NOT using force_start (i.e., for daily updates only)
+    if not force_start:
+        params["limit"] = limit
+        print(f"[DEBUG] Added limit={limit} to params (auto-detect mode)")
+    else:
+        print(f"[DEBUG] NOT using limit param (force-start mode, using date range only)")
+    
+    print(f"[DEBUG] API params: {params}")
+    
     headers = {"Content-type": "application/json; charset=UTF-8"}
 
     for attempt in range(3):
@@ -63,7 +69,7 @@ def fetch_ohlc_generic(symbol: str, market_pair: str, start: str = None, end: st
             data_list = json_data.get("Data", [])
             
             if not data_list:
-                print(f"[WARNING] No new data for {market_pair}, attempt {attempt+1}")
+                print(f"[WARNING] No data for {market_pair}, attempt {attempt+1}")
                 time.sleep(2)
                 continue
             
@@ -96,22 +102,35 @@ def fetch_historical_ohlc_sol(start: str = None, end: str = None, limit: int = 1
 def fetch_historical_ohlc_xaut(start: str = None, end: str = None, limit: int = 1, force_start: bool = False):
     return fetch_ohlc_generic("PAXG", "PAXG-USDT", start, end, limit, force_start)
 
-def fetch_market_data(binance_symbol: str, timeframe: str = "1d", limit: int = 1):
+def fetch_market_data(binance_symbol: str, timeframe: str = "1d", limit: int = 1, start_date: str = None, end_date: str = None):
     """
     Fetch OHLCV for a single asset
     """
     instrument_map = {
-        "BTCUSDT": fetch_historical_ohlc_btc,
-        "ETHUSDT": fetch_historical_ohlc_eth,
-        "SOLUSDT": fetch_historical_ohlc_sol,
-        "PAXGUSDT": fetch_historical_ohlc_xaut
+        "BTCUSDT": (fetch_historical_ohlc_btc, "BTC"),
+        "ETHUSDT": (fetch_historical_ohlc_eth, "ETH"),
+        "SOLUSDT": (fetch_historical_ohlc_sol, "SOL"),
+        "PAXGUSDT": (fetch_historical_ohlc_xaut, "PAXG")
     }
-    fetch_func = instrument_map.get(binance_symbol)
-    if not fetch_func:
+    
+    if binance_symbol not in instrument_map:
         print(f"[ERROR] No fetch function for {binance_symbol}")
         return {"ohlcv": pd.DataFrame(), "fundamentals": {}}
     
-    ohlcv_df = fetch_func(limit=limit)
+    fetch_func, symbol = instrument_map[binance_symbol]
+    
+    # If start_date is provided, use force_start mode
+    force_start = start_date is not None
+    
+    print(f"[fetch_market_data] Symbol={symbol}, start={start_date}, force={force_start}")
+    
+    ohlcv_df = fetch_func(
+        start=start_date, 
+        end=end_date, 
+        limit=limit, 
+        force_start=force_start
+    )
+    
     return {
         "ohlcv": ohlcv_df,
         "fundamentals": {}
