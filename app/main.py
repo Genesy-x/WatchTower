@@ -28,6 +28,8 @@ ALL_ASSETS = [
     ("BTCUSDT", "bitcoin"),
     ("ETHUSDT", "ethereum"),
     ("SOLUSDT", "solana"),
+    ("SUIUSDT", "sui"),
+    ("BNBUSDT", "bnb"),
     ("PAXGUSDT", "pax-gold")
 ]
 
@@ -210,7 +212,7 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
                 rebalance_df.loc[date, "signal"] = 1 if alloc != "CASH" else 0
         rebalance_df, rebalance_metrics = compute_equity(rebalance_df)
 
-        asset_table = [{"symbol": f"{k}USDT", "score": 0} for k in top_assets + (["XAUT"] if use_gold else [])]
+        asset_table = [{"symbol": f"{k}USDT", "score": 0} for k in top_assets + (["PAXG"] if use_gold else [])]
         for asset in asset_table:
             symbol = asset["symbol"].replace("USDT", "")
             if symbol in assets_data:
@@ -252,6 +254,20 @@ async def store_sol():
     success = store_single_asset(db, "SOLUSDT")
     db.close()
     return {"status": "SOL data stored" if success else "Failed to store SOL data"}
+
+@app.get("/store-sui")
+async def store_sui():
+    db = SessionLocal()
+    success = store_single_asset(db, "SUIUSDT")
+    db.close()
+    return {"status": "SUI data stored" if success else "Failed to store SUI data"}
+
+@app.get("/store-bnb")
+async def store_bnb():
+    db = SessionLocal()
+    success = store_single_asset(db, "BNBUSDT")
+    db.close()
+    return {"status": "BNB data stored" if success else "Failed to store BNB data"}
 
 @app.get("/store-paxg")
 async def store_paxg():

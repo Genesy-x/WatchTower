@@ -129,6 +129,88 @@ def fetch_historical_ohlc_sol(start: str = "2023-01-01", end: str = "2023-12-31"
     print("[ERROR] Failed to fetch SOL-USDT after retries")
     return pd.DataFrame()
 
+def fetch_historical_ohlc_sui(start: str = "2023-01-01", end: str = "2023-12-31", limit: int = 700, aggregate: int = 1):
+    """Fetch daily historical OHLCV data for SUI-USDT on Binance."""
+    params = {
+        "market": "binance",
+        "instrument": "SUI-USDT",
+        "start": "2023-01-01",
+        "end": "2023-12-31",
+        "limit": limit,
+        "aggregate": aggregate,
+        "fill": "true",
+        "apply_mapping": "true",
+        "response_format": "JSON",
+        "groups": "ID,VOLUME,OHLC",
+        "api_key": COINDESK_API_KEY
+    }
+    headers = {"Content-type": "application/json; charset=UTF-8"}
+
+    for attempt in range(3):
+        try:
+            response = requests.get(COINDESK_BASE, params=params, headers=headers)
+            response.raise_for_status()
+            json_data = response.json()
+            data_list = json_data.get("Data", [])
+            if not data_list:
+                print(f"[WARNING] Empty data for SUI-USDT, attempt {attempt+1}")
+                time.sleep(2)
+                continue
+            df = pd.DataFrame(data_list)
+            df["timestamp"] = pd.to_datetime(df["TIMESTAMP"], unit="s")
+            df.set_index("timestamp", inplace=True)
+            df = df[df.index >= pd.Timestamp("2023-01-01")]
+            df = df[["OPEN", "HIGH", "LOW", "CLOSE", "VOLUME"]]
+            df.columns = ["open", "high", "low", "close", "volume"]
+            print(f"[SUCCESS] Fetched {len(df)} rows for SUI-USDT from {df.index.min().date()} to {df.index.max().date()}")
+            return df
+        except Exception as e:
+            print(f"[ERROR] Fetching CoinDesk OHLC for SUI-USDT (attempt {attempt+1}): {e}")
+            time.sleep(2)
+    print("[ERROR] Failed to fetch SUI-USDT after retries")
+    return pd.DataFrame()
+
+def fetch_historical_ohlc_bnb(start: str = "2023-01-01", end: str = "2023-12-31", limit: int = 700, aggregate: int = 1):
+    """Fetch daily historical OHLCV data for BNB-USDT on Binance."""
+    params = {
+        "market": "binance",
+        "instrument": "BNB-USDT",
+        "start": "2023-01-01",
+        "end": "2023-12-31",
+        "limit": limit,
+        "aggregate": aggregate,
+        "fill": "true",
+        "apply_mapping": "true",
+        "response_format": "JSON",
+        "groups": "ID,VOLUME,OHLC",
+        "api_key": COINDESK_API_KEY
+    }
+    headers = {"Content-type": "application/json; charset=UTF-8"}
+
+    for attempt in range(3):
+        try:
+            response = requests.get(COINDESK_BASE, params=params, headers=headers)
+            response.raise_for_status()
+            json_data = response.json()
+            data_list = json_data.get("Data", [])
+            if not data_list:
+                print(f"[WARNING] Empty data for BNB-USDT, attempt {attempt+1}")
+                time.sleep(2)
+                continue
+            df = pd.DataFrame(data_list)
+            df["timestamp"] = pd.to_datetime(df["TIMESTAMP"], unit="s")
+            df.set_index("timestamp", inplace=True)
+            df = df[df.index >= pd.Timestamp("2023-01-01")]
+            df = df[["OPEN", "HIGH", "LOW", "CLOSE", "VOLUME"]]
+            df.columns = ["open", "high", "low", "close", "volume"]
+            print(f"[SUCCESS] Fetched {len(df)} rows for BNB-USDT from {df.index.min().date()} to {df.index.max().date()}")
+            return df
+        except Exception as e:
+            print(f"[ERROR] Fetching CoinDesk OHLC for BNB-USDT (attempt {attempt+1}): {e}")
+            time.sleep(2)
+    print("[ERROR] Failed to fetch BNB-USDT after retries")
+    return pd.DataFrame()
+
 def fetch_historical_ohlc_paxg(start: str = "2023-01-01", end: str = "2023-12-31", limit: int = 700, aggregate: int = 1):
     """Fetch daily historical OHLCV data for PAXG-USDT on Binance."""
     params = {
@@ -178,6 +260,8 @@ def fetch_market_data(binance_symbol: str, timeframe: str = "1d", limit: int = 7
         "BTCUSDT": fetch_historical_ohlc_btc,
         "ETHUSDT": fetch_historical_ohlc_eth,
         "SOLUSDT": fetch_historical_ohlc_sol,
+        "SUIUSDT": fetch_historical_ohlc_sui,
+        "BNBUSDT": fetch_historical_ohlc_bnb,
         "PAXGUSDT": fetch_historical_ohlc_paxg
     }
     fetch_func = instrument_map.get(binance_symbol)
