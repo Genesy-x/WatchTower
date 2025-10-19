@@ -33,52 +33,51 @@ ALL_ASSETS = [
     ("PAXGUSDT", "pax-gold")
 ]
 
-def store_single_asset(db, name, timeframe: str = "1d", limit: int = 1, start_date: str = None):
-    """
-    Store OHLCV data for a single asset
-    
-    Args:
-        db: Database session
-        name: Asset symbol (e.g., "BTCUSDT")
-        timeframe: Timeframe (default "1d")
-        limit: Number of rows to fetch (1 for daily, 100+ for backfill)
-        start_date: Optional start date for backfill (YYYY-MM-DD)
-    """
+def store_single_asset(db, name, timeframe: str = "1d", limit: int = 1, start_date: str = None, end_date: str = None):
+    """Store OHLCV data for a single asset"""
     try:
-        # Fetch data with optional parameters
-        if start_date:
-            # For backfilling with custom start date
+        instrument = name.replace("USDT", "")
+        
+        print(f"[DEBUG store_single_asset] name={name}, start_date={start_date}, end_date={end_date}, limit={limit}")
+        
+        # IMPORTANT: If start_date is provided, use direct fetch
+        if start_date is not None and start_date != "":
+            print(f"[BACKFILL PATH] Taking backfill route for {instrument}")
+            
             from app.data import fetch_ohlc_generic
-            instrument = name.replace("USDT", "")
+            
             pair_map = {
                 "BTC": "BTC-USDT",
                 "ETH": "ETH-USDT", 
                 "SOL": "SOL-USDT",
                 "PAXG": "PAXG-USDT"
             }
-            market_data = fetch_ohlc_generic(
+            
+            ohlcv = fetch_ohlc_generic(
                 instrument, 
                 pair_map[instrument], 
-                start=start_date, 
-                end=None, 
-                limit=min(limit, 500)  # Cap at 500 to avoid timeout
+                start=start_date,
+                end=end_date,
+                limit=min(limit, 500),
+                force_start=True
             )
-            ohlcv = market_data
         else:
-            # Normal daily fetch
+            print(f"[NORMAL PATH] Taking normal route for {instrument}")
             market_data = fetch_market_data(name, timeframe, limit)
             ohlcv = market_data["ohlcv"]
         
-        instrument = name.replace("USDT", "")
-        print(f"Attempting to store for {instrument}: {len(ohlcv)} rows")
+        print(f"Received {len(ohlcv)} rows for {instrument}")
         
         if not ohlcv.empty:
             stored_count = 0
+            skipped_count = 0
+            
             for index, row in ohlcv.iterrows():
                 existing = db.query(OHLCVData).filter(
                     OHLCVData.instrument == instrument,
                     OHLCVData.timestamp == index
                 ).first()
+                
                 if not existing:
                     record = OHLCVData(
                         instrument=instrument,
@@ -91,15 +90,26 @@ def store_single_asset(db, name, timeframe: str = "1d", limit: int = 1, start_da
                     )
                     db.add(record)
                     stored_count += 1
+                else:
+                    skipped_count += 1
             
             db.commit()
-            print(f"Successfully committed {stored_count} new rows for {instrument} to Neon")
-            return {"success": True, "stored": stored_count, "total": len(ohlcv)}
+            print(f"Committed {stored_count} new, skipped {skipped_count} duplicates")
+            
+            return {
+                "success": True, 
+                "stored": stored_count, 
+                "skipped": skipped_count,
+                "total": len(ohlcv),
+                "date_range": f"{ohlcv.index.min().date()} to {ohlcv.index.max().date()}"
+            }
         else:
-            print(f"[WARNING] No new data for {instrument}")
             return {"success": False, "error": "No data returned"}
+            
     except Exception as e:
-        print(f"[ERROR] Failed to store {instrument}: {e}")
+        print(f"[ERROR] {e}")
+        import traceback
+        traceback.print_exc()
         db.rollback()
         return {"success": False, "error": str(e)}
 
@@ -134,40 +144,41 @@ async def root():
     return {"status": "healthy"}
 
 @app.get("/store-btc")
-async def store_btc(limit: int = 1, start_date: str = None):
+async def store_btc(limit: int = 1, start_date: str = None, end_date: str = None):
     """
     Store BTC data. 
     Examples:
-      /store-btc                           # Store today's data
-      /store-btc?limit=100                 # Store last 100 days
-      /store-btc?start_date=2023-01-01&limit=365  # Store from date
+      /store-btc                                      # Store latest missing data
+      /store-btc?limit=100                            # Store last 100 days from DB
+      /store-btc?start_date=2023-01-01&limit=365      # Backfill from 2023-01-01
+      /store-btc?start_date=2023-01-01&end_date=2024-01-01  # Specific range
     """
     db = SessionLocal()
-    result = store_single_asset(db, "BTCUSDT", limit=limit, start_date=start_date)
+    result = store_single_asset(db, "BTCUSDT", limit=limit, start_date=start_date, end_date=end_date)
     db.close()
     return result
 
 @app.get("/store-eth")
-async def store_eth(limit: int = 1, start_date: str = None):
+async def store_eth(limit: int = 1, start_date: str = None, end_date: str = None):
     """Store ETH data"""
     db = SessionLocal()
-    result = store_single_asset(db, "ETHUSDT", limit=limit, start_date=start_date)
+    result = store_single_asset(db, "ETHUSDT", limit=limit, start_date=start_date, end_date=end_date)
     db.close()
     return result
 
 @app.get("/store-sol")
-async def store_sol(limit: int = 1, start_date: str = None):
+async def store_sol(limit: int = 1, start_date: str = None, end_date: str = None):
     """Store SOL data"""
     db = SessionLocal()
-    result = store_single_asset(db, "SOLUSDT", limit=limit, start_date=start_date)
+    result = store_single_asset(db, "SOLUSDT", limit=limit, start_date=start_date, end_date=end_date)
     db.close()
     return result
 
 @app.get("/store-paxg")
-async def store_paxg(limit: int = 1, start_date: str = None):
+async def store_paxg(limit: int = 1, start_date: str = None, end_date: str = None):
     """Store PAXG data"""
     db = SessionLocal()
-    result = store_single_asset(db, "PAXGUSDT", limit=limit, start_date=start_date)
+    result = store_single_asset(db, "PAXGUSDT", limit=limit, start_date=start_date, end_date=end_date)
     db.close()
     return result
 
