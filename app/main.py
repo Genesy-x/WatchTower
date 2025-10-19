@@ -30,6 +30,8 @@ ALL_ASSETS = [
     ("BTCUSDT", "bitcoin"),
     ("ETHUSDT", "ethereum"),
     ("SOLUSDT", "solana"),
+    ("SUIUSDT", "sui"),
+    ("BNBUSDT", "bnb"),
     ("PAXGUSDT", "pax-gold")
 ]
 
@@ -227,8 +229,9 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
 
         # Run tournament to get top assets - PASS assets_data!
         print("[DEBUG] Running tournament...")
+        print(f"[DEBUG] Processing {len(ALL_ASSETS[:used_assets + 1])} assets: {[s for s, _ in ALL_ASSETS[:used_assets + 1]]}")
         tournament_results = run_tournament(ALL_ASSETS[:used_assets + 1], assets_data=assets_data)
-        print(f"[DEBUG] Tournament results: {tournament_results}")
+        print(f"[DEBUG] Tournament results ({len(tournament_results)} assets): {[r['symbol'] for r in tournament_results]}")
 
         gold_data = assets_data.get("PAXG", pd.DataFrame())
         if gold_data.empty and use_gold:
@@ -397,8 +400,9 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
 
         # Run tournament to get top assets - PASS assets_data!
         print("[DEBUG] Running tournament...")
+        print(f"[DEBUG] Processing {len(ALL_ASSETS[:used_assets + 1])} assets: {[s for s, _ in ALL_ASSETS[:used_assets + 1]]}")
         tournament_results = run_tournament(ALL_ASSETS[:used_assets + 1], assets_data=assets_data)
-        print(f"[DEBUG] Tournament results: {tournament_results}")
+        print(f"[DEBUG] Tournament results ({len(tournament_results)} assets): {[r['symbol'] for r in tournament_results]}")
 
         gold_data = assets_data.get("PAXG", pd.DataFrame())
         if gold_data.empty and use_gold:
