@@ -6,7 +6,7 @@ from app.strategies.universal_rs import compute_relative_strength, rotate_equity
 from app.tournament import run_tournament
 from app.db.database import SessionLocal, BacktestRun, OHLCVData
 from app.equity import compute_equity
-from datetime import datetime
+from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -31,19 +31,14 @@ ALL_ASSETS = [
     ("PAXGUSDT", "pax-gold")
 ]
 
-def fetch_and_store_raw_data(assets=ALL_ASSETS, timeframe: str = "1d", limit: int = 700):
-    """
-    Fetch and store raw OHLCV data for assets in the database.
-    """
-    db = SessionLocal()
+def store_single_asset(db, name, timeframe: str = "1d", limit: int = 1):
     try:
-        for name, _ in assets:
-            market_data = fetch_market_data(name, timeframe, limit)
-            ohlcv = market_data["ohlcv"]
-            instrument = name.replace("USDT", "")
-            print(f"Attempting to store {len(ohlcv)} rows for {instrument}")
+        market_data = fetch_market_data(name, timeframe, limit)
+        ohlcv = market_data["ohlcv"]
+        instrument = name.replace("USDT", "")
+        print(f"Storing OHLCV for {instrument}: {ohlcv.head()}")
+        if not ohlcv.empty:
             for index, row in ohlcv.iterrows():
-                # Convert NumPy types to Python types
                 existing = db.query(OHLCVData).filter(
                     OHLCVData.instrument == instrument,
                     OHLCVData.timestamp == index
@@ -51,22 +46,23 @@ def fetch_and_store_raw_data(assets=ALL_ASSETS, timeframe: str = "1d", limit: in
                 if not existing:
                     record = OHLCVData(
                         instrument=instrument,
-                        timestamp=index.to_pydatetime(),  # Convert Timestamp to datetime
-                        open=float(row['open']),  # Convert np.float64 to float
+                        timestamp=index.to_pydatetime(),
+                        open=float(row['open']),
                         high=float(row['high']),
                         low=float(row['low']),
                         close=float(row['close']),
                         volume=float(row['volume'])
                     )
                     db.add(record)
-                    print(f"Added record for {instrument} at {index}")
             db.commit()
-            print(f"Successfully committed {len(ohlcv)} rows for {instrument} to Neon")
+            print(f"Successfully committed {len(ohlcv)} new rows for {instrument} to Neon")
+        else:
+            print(f"[WARNING] No new data for {instrument}")
+        return True
     except Exception as e:
-        print(f"[ERROR] Failed to store data in Neon: {e}")
+        print(f"[ERROR] Failed to store {instrument}: {e}")
         db.rollback()
-    finally:
-        db.close()
+        return False
 
 @app.get("/")
 async def root():
@@ -74,29 +70,60 @@ async def root():
     print("Server is running!")
     return {"status": "healthy"}
 
+@app.get("/store-btc")
+async def store_btc():
+    db = SessionLocal()
+    success = store_single_asset(db, "BTCUSDT")
+    db.close()
+    return {"status": "BTC data stored" if success else "Failed to store BTC data"}
+
+@app.get("/store-eth")
+async def store_eth():
+    db = SessionLocal()
+    success = store_single_asset(db, "ETHUSDT")
+    db.close()
+    return {"status": "ETH data stored" if success else "Failed to store ETH data"}
+
+@app.get("/store-sol")
+async def store_sol():
+    db = SessionLocal()
+    success = store_single_asset(db, "SOLUSDT")
+    db.close()
+    return {"status": "SOL data stored" if success else "Failed to store SOL data"}
+
+@app.get("/store-xaut")
+async def store_xaut():
+    db = SessionLocal()
+    success = store_single_asset(db, "PAXGUSDT")
+    db.close()
+    return {"status": "XAUT data stored" if success else "Failed to store XAUT data"}
+
 @app.get("/backtest")
 async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets: int = 3,
                    use_gold: bool = True, benchmark: str = "BTC", timeframe: str = "1d"):
     try:
-        tournament_results = run_tournament(ALL_ASSETS[:used_assets + 1])
-        if not tournament_results:
-            return {"error": "No tournament results available"}
+        # Fetch data from Neon (implement a query function if needed)
+        db = SessionLocal()
         assets_data = {}
-        top_assets = [result["symbol"] for result in tournament_results[:used_assets]]
         for symbol, _ in ALL_ASSETS[:used_assets + 1]:
-            market_data = fetch_market_data(symbol, timeframe, limit)
-            ohlcv = market_data["ohlcv"]
-            print(f"Raw OHLCV for {symbol}: {ohlcv.head()}")
-            if ohlcv.empty:
-                print(f"Empty OHLCV for {symbol}")
-                continue
-            indicators_df = compute_indicators(ohlcv)
-            assets_data[symbol.replace("USDT", "")] = indicators_df
+            instrument = symbol.replace("USDT", "")
+            query = db.query(OHLCVData).filter(OHLCVData.instrument == instrument).order_by(OHLCVData.timestamp).all()
+            if query:
+                df = pd.DataFrame([(q.timestamp, q.open, q.high, q.low, q.close, q.volume) for q in query],
+                                columns=["timestamp", "open", "high", "low", "close", "volume"])
+                df.set_index("timestamp", inplace=True)
+                assets_data[instrument] = compute_indicators(df)
+        db.close()
 
-        gold_market = fetch_market_data("PAXGUSDT", timeframe, limit)
-        gold_data = compute_indicators(gold_market["ohlcv"])
-        print(f"Raw OHLCV for GOLD: {gold_market['ohlcv'].head()}")
+        if not assets_data:
+            return {"error": "No data available in Neon"}
 
+        gold_data = assets_data.get("XAUT", pd.DataFrame())
+        if gold_data.empty and use_gold:
+            market_data = fetch_market_data("PAXGUSDT", timeframe, limit)
+            gold_data = compute_indicators(market_data["ohlcv"])
+
+        top_assets = list(assets_data.keys())[:used_assets]
         rs_data = compute_relative_strength({k: v for k, v in assets_data.items() if k in top_assets}, filtered=True)
         equity_filtered, alloc_hist_filtered, switches_filtered = rotate_equity(
             rs_data, {k: v for k, v in assets_data.items() if k in top_assets}, gold_data, start_date=start_date, use_gold=use_gold
@@ -122,7 +149,7 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
             benchmark_df, benchmark_metrics = compute_equity(benchmark_df)
 
         # Asset table with equity from compute_equity
-        asset_table = tournament_results[:used_assets + 1]
+        asset_table = [{"symbol": f"{k}USDT", "score": 0} for k in top_assets[:used_assets] + (["XAUT"] if use_gold else [])]
         for asset in asset_table:
             symbol = asset["symbol"].replace("USDT", "")
             if symbol in assets_data:
@@ -131,7 +158,7 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
                 _, asset_metrics = compute_equity(asset_df)
                 asset["equity"] = asset_metrics["final_equity"]
 
-        top3 = [result["symbol"].replace("USDT", "") for result in tournament_results[:3]]
+        top3 = [f"{k}USDT" for k in list(assets_data.keys())[:3]]
         current_alloc = alloc_hist_filtered[-1] if alloc_hist_filtered else "CASH"
 
         metrics_table = {
@@ -154,7 +181,6 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
 
         strategy_df.index = strategy_df.index.astype(str)
 
-        fetch_and_store_raw_data()
         db = SessionLocal()
         run = BacktestRun(
             start_date=pd.to_datetime(start_date).to_pydatetime(),
@@ -173,21 +199,30 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
         return {"error": str(e)}
 
 @app.get("/rebalance")
-async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str = "1d", limit: int = 700):
+async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str = "1d", limit: int = 1):
     try:
-        tournament_results = run_tournament(ALL_ASSETS[:used_assets + 1])
-        if not tournament_results:
-            return {"error": "No tournament results available"}
+        # Fetch data from Neon
+        db = SessionLocal()
         assets_data = {}
-        top_assets = [result["symbol"] for result in tournament_results[:used_assets]]
         for symbol, _ in ALL_ASSETS[:used_assets + 1]:
-            market_data = fetch_market_data(symbol, timeframe, limit)
-            ohlcv = market_data["ohlcv"]
-            assets_data[symbol.replace("USDT", "")] = compute_indicators(ohlcv)
+            instrument = symbol.replace("USDT", "")
+            query = db.query(OHLCVData).filter(OHLCVData.instrument == instrument).order_by(OHLCVData.timestamp).all()
+            if query:
+                df = pd.DataFrame([(q.timestamp, q.open, q.high, q.low, q.close, q.volume) for q in query],
+                                columns=["timestamp", "open", "high", "low", "close", "volume"])
+                df.set_index("timestamp", inplace=True)
+                assets_data[instrument] = compute_indicators(df)
+        db.close()
 
-        gold_market = fetch_market_data("PAXGUSDT", timeframe, limit)
-        gold_data = compute_indicators(gold_market["ohlcv"])
+        if not assets_data:
+            return {"error": "No data available in Neon"}
 
+        gold_data = assets_data.get("XAUT", pd.DataFrame())
+        if gold_data.empty and use_gold:
+            market_data = fetch_market_data("PAXGUSDT", timeframe, limit)
+            gold_data = compute_indicators(market_data["ohlcv"])
+
+        top_assets = list(assets_data.keys())[:used_assets]
         rs_data = compute_relative_strength({k: v for k, v in assets_data.items() if k in top_assets}, filtered=True)
         equity_filtered, alloc_hist, switches = rotate_equity(
             rs_data, {k: v for k, v in assets_data.items() if k in top_assets}, gold_data, use_gold=use_gold
@@ -201,7 +236,7 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
                 rebalance_df.loc[date, "signal"] = 1 if alloc != "CASH" else 0
         rebalance_df, rebalance_metrics = compute_equity(rebalance_df)
 
-        asset_table = tournament_results[:used_assets + 1]
+        asset_table = [{"symbol": f"{k}USDT", "score": 0} for k in top_assets + (["XAUT"] if use_gold else [])]
         for asset in asset_table:
             symbol = asset["symbol"].replace("USDT", "")
             if symbol in assets_data:
@@ -210,7 +245,7 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
                 _, asset_metrics = compute_equity(asset_df)
                 asset["equity"] = asset_metrics["final_equity"]
 
-        top3 = [result["symbol"].replace("USDT", "") for result in tournament_results[:3]]
+        top3 = [f"{k}USDT" for k in list(assets_data.keys())[:3]]
         current_alloc = alloc_hist[-1]
 
         return {
@@ -223,19 +258,44 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
     except Exception as e:
         return {"error": str(e)}
 
-@app.get("/store-data")
-async def store_data():
-    fetch_and_store_raw_data()
-    return {"status": "Data stored"}
+@app.get("/store-btc")
+async def store_btc():
+    db = SessionLocal()
+    success = store_single_asset(db, "BTCUSDT")
+    db.close()
+    return {"status": "BTC data stored" if success else "Failed to store BTC data"}
 
-# Scheduler for daily rebalancing
-def scheduled_rebalance():
-    fetch_and_store_raw_data()
-    response = backtest()
-    print("Scheduled rebalance complete:", response["metrics"])
+@app.get("/store-eth")
+async def store_eth():
+    db = SessionLocal()
+    success = store_single_asset(db, "ETHUSDT")
+    db.close()
+    return {"status": "ETH data stored" if success else "Failed to store ETH data"}
+
+@app.get("/store-sol")
+async def store_sol():
+    db = SessionLocal()
+    success = store_single_asset(db, "SOLUSDT")
+    db.close()
+    return {"status": "SOL data stored" if success else "Failed to store SOL data"}
+
+@app.get("/store-xaut")
+async def store_xaut():
+    db = SessionLocal()
+    success = store_single_asset(db, "PAXGUSDT")
+    db.close()
+    return {"status": "XAUT data stored" if success else "Failed to store XAUT data"}
+
+# Scheduler for daily updates post-UTC close
+def daily_update():
+    db = SessionLocal()
+    for name, _ in ALL_ASSETS:
+        store_single_asset(db, name)
+    db.close()
+    print(f"Daily update completed at {datetime.utcnow()} UTC")
 
 scheduler = BackgroundScheduler()
-scheduler.add_job(scheduled_rebalance, 'interval', days=1)
+scheduler.add_job(daily_update, 'cron', hour=0, minute=5, timezone='UTC')  # 5 mins after UTC 00:00
 scheduler.start()
 
 if __name__ == "__main__":
