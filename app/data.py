@@ -6,13 +6,13 @@ from datetime import datetime
 COINDESK_API_KEY = "74e1e197fe44b98d6c1cfd466095fa9fa4c2a57edea008936b2ac1d5ad5167d1"  # Replace if needed
 COINDESK_BASE = "https://data-api.coindesk.com/spot/v1/historical/days"
 
-def fetch_historical_ohlc_btc(start: str = "2024-01-01", end: str = datetime.now().strftime("%Y-%m-%d"), limit: int = 700, aggregate: int = 1):
+def fetch_historical_ohlc_btc(start: str = "2023-01-01", end: str = "2023-12-31", limit: int = 700, aggregate: int = 1):
     """Fetch daily historical OHLCV data for BTC-USDT on Binance."""
     params = {
         "market": "binance",
         "instrument": "BTC-USDT",
-        "start": start,
-        "end": end,
+        "start": "2023-01-01",
+        "end": "2023-12-31",
         "limit": limit,
         "aggregate": aggregate,
         "fill": "true",
@@ -36,7 +36,7 @@ def fetch_historical_ohlc_btc(start: str = "2024-01-01", end: str = datetime.now
             df = pd.DataFrame(data_list)
             df["timestamp"] = pd.to_datetime(df["TIMESTAMP"], unit="s")
             df.set_index("timestamp", inplace=True)
-            df = df[df.index >= pd.Timestamp("2024-01-01")]
+            df = df[df.index >= pd.Timestamp("2023-01-01")]
             df = df[["OPEN", "HIGH", "LOW", "CLOSE", "VOLUME"]]
             df.columns = ["open", "high", "low", "close", "volume"]
             print(f"[SUCCESS] Fetched {len(df)} rows for BTC-USDT from {df.index.min().date()} to {df.index.max().date()}")
@@ -47,13 +47,13 @@ def fetch_historical_ohlc_btc(start: str = "2024-01-01", end: str = datetime.now
     print("[ERROR] Failed to fetch BTC-USDT after retries")
     return pd.DataFrame()
 
-def fetch_historical_ohlc_eth(start: str = "2024-01-01", end: str = datetime.now().strftime("%Y-%m-%d"), limit: int = 700, aggregate: int = 1):
+def fetch_historical_ohlc_eth(start: str = "2023-01-01", end: str = "2023-12-31", limit: int = 700, aggregate: int = 1):
     """Fetch daily historical OHLCV data for ETH-USDT on Binance."""
     params = {
         "market": "binance",
         "instrument": "ETH-USDT",
-        "start": start,
-        "end": end,
+        "start": "2023-01-01",
+        "end": "2023-12-31",
         "limit": limit,
         "aggregate": aggregate,
         "fill": "true",
@@ -77,7 +77,7 @@ def fetch_historical_ohlc_eth(start: str = "2024-01-01", end: str = datetime.now
             df = pd.DataFrame(data_list)
             df["timestamp"] = pd.to_datetime(df["TIMESTAMP"], unit="s")
             df.set_index("timestamp", inplace=True)
-            df = df[df.index >= pd.Timestamp("2024-01-01")]
+            df = df[df.index >= pd.Timestamp("2023-01-01")]
             df = df[["OPEN", "HIGH", "LOW", "CLOSE", "VOLUME"]]
             df.columns = ["open", "high", "low", "close", "volume"]
             print(f"[SUCCESS] Fetched {len(df)} rows for ETH-USDT from {df.index.min().date()} to {df.index.max().date()}")
@@ -88,13 +88,13 @@ def fetch_historical_ohlc_eth(start: str = "2024-01-01", end: str = datetime.now
     print("[ERROR] Failed to fetch ETH-USDT after retries")
     return pd.DataFrame()
 
-def fetch_historical_ohlc_sol(start: str = "2024-01-01", end: str = datetime.now().strftime("%Y-%m-%d"), limit: int = 700, aggregate: int = 1):
+def fetch_historical_ohlc_sol(start: str = "2023-01-01", end: str = "2023-12-31", limit: int = 700, aggregate: int = 1):
     """Fetch daily historical OHLCV data for SOL-USDT on Binance."""
     params = {
         "market": "binance",
         "instrument": "SOL-USDT",
-        "start": start,
-        "end": end,
+        "start": "2023-01-01",
+        "end": "2023-12-31",
         "limit": limit,
         "aggregate": aggregate,
         "fill": "true",
@@ -118,7 +118,7 @@ def fetch_historical_ohlc_sol(start: str = "2024-01-01", end: str = datetime.now
             df = pd.DataFrame(data_list)
             df["timestamp"] = pd.to_datetime(df["TIMESTAMP"], unit="s")
             df.set_index("timestamp", inplace=True)
-            df = df[df.index >= pd.Timestamp("2024-01-01")]
+            df = df[df.index >= pd.Timestamp("2023-01-01")]
             df = df[["OPEN", "HIGH", "LOW", "CLOSE", "VOLUME"]]
             df.columns = ["open", "high", "low", "close", "volume"]
             print(f"[SUCCESS] Fetched {len(df)} rows for SOL-USDT from {df.index.min().date()} to {df.index.max().date()}")
@@ -129,13 +129,13 @@ def fetch_historical_ohlc_sol(start: str = "2024-01-01", end: str = datetime.now
     print("[ERROR] Failed to fetch SOL-USDT after retries")
     return pd.DataFrame()
 
-def fetch_historical_ohlc_xaut(start: str = "2024-01-01", end: str = datetime.now().strftime("%Y-%m-%d"), limit: int = 700, aggregate: int = 1):
-    """Fetch daily historical OHLCV data for XAUT-USDT on Kraken."""
+def fetch_historical_ohlc_paxg(start: str = "2023-01-01", end: str = "2023-12-31", limit: int = 700, aggregate: int = 1):
+    """Fetch daily historical OHLCV data for PAXG-USDT on Binance."""
     params = {
-        "market": "kraken",
-        "instrument": "XAUT-USDT",
-        "start": start,
-        "end": end,
+        "market": "binance",
+        "instrument": "PAXG-USDT",
+        "start": "2023-01-01",
+        "end": "2023-12-31",
         "limit": limit,
         "aggregate": aggregate,
         "fill": "true",
@@ -153,21 +153,21 @@ def fetch_historical_ohlc_xaut(start: str = "2024-01-01", end: str = datetime.no
             json_data = response.json()
             data_list = json_data.get("Data", [])
             if not data_list:
-                print(f"[WARNING] Empty data for XAUT-USDT, attempt {attempt+1}")
+                print(f"[WARNING] Empty data for PAXG-USDT, attempt {attempt+1}")
                 time.sleep(2)
                 continue
             df = pd.DataFrame(data_list)
             df["timestamp"] = pd.to_datetime(df["TIMESTAMP"], unit="s")
             df.set_index("timestamp", inplace=True)
-            df = df[df.index >= pd.Timestamp("2024-01-01")]
+            df = df[df.index >= pd.Timestamp("2023-01-01")]
             df = df[["OPEN", "HIGH", "LOW", "CLOSE", "VOLUME"]]
             df.columns = ["open", "high", "low", "close", "volume"]
-            print(f"[SUCCESS] Fetched {len(df)} rows for XAUT-USDT from {df.index.min().date()} to {df.index.max().date()}")
+            print(f"[SUCCESS] Fetched {len(df)} rows for PAXG-USDT from {df.index.min().date()} to {df.index.max().date()}")
             return df
         except Exception as e:
-            print(f"[ERROR] Fetching CoinDesk OHLC for XAUT-USDT (attempt {attempt+1}): {e}")
+            print(f"[ERROR] Fetching CoinDesk OHLC for PAXG-USDT (attempt {attempt+1}): {e}")
             time.sleep(2)
-    print("[ERROR] Failed to fetch XAUT-USDT after retries")
+    print("[ERROR] Failed to fetch PAXG-USDT after retries")
     return pd.DataFrame()
 
 def fetch_market_data(binance_symbol: str, timeframe: str = "1d", limit: int = 700):
@@ -178,7 +178,7 @@ def fetch_market_data(binance_symbol: str, timeframe: str = "1d", limit: int = 7
         "BTCUSDT": fetch_historical_ohlc_btc,
         "ETHUSDT": fetch_historical_ohlc_eth,
         "SOLUSDT": fetch_historical_ohlc_sol,
-        "PAXGUSDT": fetch_historical_ohlc_xaut
+        "PAXGUSDT": fetch_historical_ohlc_paxg
     }
     fetch_func = instrument_map.get(binance_symbol)
     if not fetch_func:

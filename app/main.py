@@ -31,7 +31,7 @@ ALL_ASSETS = [
     ("PAXGUSDT", "pax-gold")
 ]
 
-def store_single_asset(db, name, timeframe: str = "1d", limit: int = 1):
+def store_single_asset(db, name, timeframe: str = "1d", limit: int = 1200):
     try:
         market_data = fetch_market_data(name, timeframe, limit)
         ohlcv = market_data["ohlcv"]
@@ -70,33 +70,7 @@ async def root():
     print("Server is running!")
     return {"status": "healthy"}
 
-@app.get("/store-btc")
-async def store_btc():
-    db = SessionLocal()
-    success = store_single_asset(db, "BTCUSDT")
-    db.close()
-    return {"status": "BTC data stored" if success else "Failed to store BTC data"}
 
-@app.get("/store-eth")
-async def store_eth():
-    db = SessionLocal()
-    success = store_single_asset(db, "ETHUSDT")
-    db.close()
-    return {"status": "ETH data stored" if success else "Failed to store ETH data"}
-
-@app.get("/store-sol")
-async def store_sol():
-    db = SessionLocal()
-    success = store_single_asset(db, "SOLUSDT")
-    db.close()
-    return {"status": "SOL data stored" if success else "Failed to store SOL data"}
-
-@app.get("/store-xaut")
-async def store_xaut():
-    db = SessionLocal()
-    success = store_single_asset(db, "PAXGUSDT")
-    db.close()
-    return {"status": "XAUT data stored" if success else "Failed to store XAUT data"}
 
 @app.get("/backtest")
 async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets: int = 3,
@@ -217,7 +191,7 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
         if not assets_data:
             return {"error": "No data available in Neon"}
 
-        gold_data = assets_data.get("XAUT", pd.DataFrame())
+        gold_data = assets_data.get("PAXG", pd.DataFrame())
         if gold_data.empty and use_gold:
             market_data = fetch_market_data("PAXGUSDT", timeframe, limit)
             gold_data = compute_indicators(market_data["ohlcv"])
@@ -279,12 +253,12 @@ async def store_sol():
     db.close()
     return {"status": "SOL data stored" if success else "Failed to store SOL data"}
 
-@app.get("/store-xaut")
-async def store_xaut():
+@app.get("/store-paxg")
+async def store_paxg():
     db = SessionLocal()
     success = store_single_asset(db, "PAXGUSDT")
     db.close()
-    return {"status": "XAUT data stored" if success else "Failed to store XAUT data"}
+    return {"status": "PAXG data stored" if success else "Failed to store PAXG data"}
 
 # Scheduler for daily updates post-UTC close
 def daily_update():
@@ -299,4 +273,4 @@ scheduler.add_job(daily_update, 'cron', hour=0, minute=5, timezone='UTC')  # 5 m
 scheduler.start()
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=10000)
+    uvicorn.run(app, host="0.0.0.0", port=8000)
