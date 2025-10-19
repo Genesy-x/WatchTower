@@ -144,7 +144,7 @@ async def root():
     return {"status": "healthy"}
 
 @app.get("/store-btc")
-async def store_btc(limit: int = 365, start_date: str = "2023-01-01", end_date: str = "2023-12-31"):
+async def store_btc(limit: int = 1022, start_date: str = "2023-01-01", end_date: str = "2023-12-31"):
     """
     Store BTC data. 
     Examples:
@@ -157,7 +157,7 @@ async def store_btc(limit: int = 365, start_date: str = "2023-01-01", end_date: 
     db = SessionLocal()
     
     # If start_date is provided but limit is default, increase limit for backfill
-    if start_date and limit == 365:
+    if start_date and limit == 1022:
         # Calculate days between dates if end_date provided
         if end_date:
             from datetime import datetime
@@ -171,10 +171,10 @@ async def store_btc(limit: int = 365, start_date: str = "2023-01-01", end_date: 
     return result
 
 @app.get("/store-eth")
-async def store_eth(limit: int = 365, start_date: str = None, end_date: str = None):
+async def store_eth(limit: int = 1022, start_date: str = None, end_date: str = None):
     """Store ETH data"""
     db = SessionLocal()
-    if start_date and end_date and limit == 365:
+    if start_date and end_date and limit == 1022:
         from datetime import datetime
         start = datetime.strptime(start_date, "%Y-%m-%d")
         end = datetime.strptime(end_date, "%Y-%m-%d")
@@ -184,10 +184,10 @@ async def store_eth(limit: int = 365, start_date: str = None, end_date: str = No
     return result
 
 @app.get("/store-sol")
-async def store_sol(limit: int = 365, start_date: str = None, end_date: str = None):
+async def store_sol(limit: int = 1022, start_date: str = None, end_date: str = None):
     """Store SOL data"""
     db = SessionLocal()
-    if start_date and end_date and limit == 365:
+    if start_date and end_date and limit == 1022:
         from datetime import datetime
         start = datetime.strptime(start_date, "%Y-%m-%d")
         end = datetime.strptime(end_date, "%Y-%m-%d")
@@ -197,10 +197,10 @@ async def store_sol(limit: int = 365, start_date: str = None, end_date: str = No
     return result
 
 @app.get("/store-paxg")
-async def store_paxg(limit: int = 365, start_date: str = None, end_date: str = None):
+async def store_paxg(limit: int = 1022, start_date: str = None, end_date: str = None):
     """Store PAXG data"""
     db = SessionLocal()
-    if start_date and end_date and limit == 365:
+    if start_date and end_date and limit == 1022:
         from datetime import datetime
         start = datetime.strptime(start_date, "%Y-%m-%d")
         end = datetime.strptime(end_date, "%Y-%m-%d")
