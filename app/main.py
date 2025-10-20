@@ -227,6 +227,18 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
         if not assets_data:
             return {"error": "No data available in Neon"}
 
+        # FIX: Calculate common_start date from all assets
+        common_start = pd.to_datetime(start_date)
+        # Find the latest start date among all assets (to ensure all have data)
+        for asset_name, asset_df in assets_data.items():
+            if not asset_df.empty:
+                asset_start = asset_df.index.min()
+                if asset_start > common_start:
+                    common_start = asset_start
+                    print(f"[DEBUG] Adjusted common_start to {common_start} based on {asset_name}")
+        
+        print(f"[DEBUG] Common start date: {common_start}")
+
         # Run tournament to get top assets - PASS assets_data!
         print("[DEBUG] Running tournament...")
         print(f"[DEBUG] Processing {len(ALL_ASSETS[:used_assets + 1])} assets: {[s for s, _ in ALL_ASSETS[:used_assets + 1]]}")
@@ -301,15 +313,21 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
         
         print(f"[DEBUG] Strategy metrics: {strategy_metrics}")
 
-        # Benchmark equity - simple buy and hold
+        # Benchmark equity - simple buy and hold FROM COMMON START
         if benchmark in assets_data:
-            benchmark_df = assets_data[benchmark].reindex(equity_filtered.index)
+            benchmark_df = assets_data[benchmark][assets_data[benchmark].index >= common_start]
             
-            # Calculate buy & hold properly: compare last close to first close
-            first_close = benchmark_df['close'].iloc[0]
-            benchmark_equity = benchmark_df['close'] / first_close  # Normalize to starting at 1.0
-            
-            print(f"[DEBUG] Benchmark ({benchmark}): First close = {first_close:.2f}, Last close = {benchmark_df['close'].iloc[-1]:.2f}")
+            if not benchmark_df.empty:
+                # Calculate buy & hold properly: normalize to start at 1.0
+                first_close = benchmark_df['close'].iloc[0]
+                benchmark_equity = benchmark_df['close'] / first_close
+                
+                # Align to strategy equity index
+                benchmark_equity = benchmark_equity.reindex(equity_filtered.index, method='ffill')
+                
+                print(f"[DEBUG] Benchmark ({benchmark}): First close = {first_close:.2f}, Last close = {benchmark_df['close'].iloc[-1]:.2f}")
+            else:
+                benchmark_equity = pd.Series(1.0, index=equity_filtered.index)
         else:
             benchmark_equity = pd.Series(1.0, index=equity_filtered.index)
         
@@ -318,7 +336,7 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
         
         print(f"[DEBUG] Benchmark return: {benchmark_total_return:.2f}%")
 
-        # Asset table with equity calculated from COMMON START DATE
+        # FIX: Asset table equity calculation - use common start date
         asset_table = tournament_results[:used_assets + 1] if tournament_results else []
         for asset in asset_table:
             symbol = asset["symbol"].replace("USDT", "")
@@ -328,14 +346,19 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
                 asset_df = asset_df[asset_df.index >= common_start]  # Align to same start
                 
                 if len(asset_df) > 0:
-                    # Calculate buy-and-hold from common start
+                    # Calculate buy-and-hold return percentage from common start
                     first_close = asset_df["close"].iloc[0]
                     last_close = asset_df["close"].iloc[-1]
-                    equity_multiplier = last_close / first_close
-                    asset["equity"] = equity_multiplier
-                    print(f"[DEBUG] {symbol} equity: {first_close:.2f} -> {last_close:.2f} = {equity_multiplier:.3f}x")
+                    
+                    # Return as percentage gain, not multiplier
+                    return_pct = ((last_close - first_close) / first_close) * 100
+                    asset["equity"] = return_pct
+                    
+                    print(f"[DEBUG] {symbol} equity: {first_close:.2f} -> {last_close:.2f} = {return_pct:.2f}%")
                 else:
-                    asset["equity"] = 1.0
+                    asset["equity"] = 0.0
+            else:
+                asset["equity"] = 0.0
 
         top3 = [result["symbol"] for result in tournament_results[:3]] if tournament_results else []
         
@@ -476,19 +499,35 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
         
         print(f"[DEBUG] Rebalance metrics: {rebalance_metrics}")
 
+        # FIX: Calculate common start for asset table
+        common_start = None
+        for asset_name, asset_df in assets_data.items():
+            if not asset_df.empty:
+                asset_start = asset_df.index.min()
+                if common_start is None or asset_start > common_start:
+                    common_start = asset_start
+
         asset_table = tournament_results[:used_assets + 1] if tournament_results else []
         for asset in asset_table:
             symbol = asset["symbol"].replace("USDT", "")
             if symbol in assets_data:
-                # Calculate simple buy-and-hold equity (first close to last close)
                 asset_df = assets_data[symbol].copy()
+                
+                # Align to common start if available
+                if common_start is not None:
+                    asset_df = asset_df[asset_df.index >= common_start]
+                
                 if len(asset_df) > 0:
                     first_close = asset_df["close"].iloc[0]
                     last_close = asset_df["close"].iloc[-1]
-                    equity_multiplier = last_close / first_close
-                    asset["equity"] = equity_multiplier
+                    
+                    # Return as percentage, not multiplier
+                    return_pct = ((last_close - first_close) / first_close) * 100
+                    asset["equity"] = return_pct
                 else:
-                    asset["equity"] = 1.0
+                    asset["equity"] = 0.0
+            else:
+                asset["equity"] = 0.0
 
         top3 = [result["symbol"] for result in tournament_results[:3]] if tournament_results else []
         
@@ -499,8 +538,8 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
             "current_allocation": current_alloc,
             "top3": top3,
             "asset_table": asset_table,
-            "latest_equity": rebalance_equity.iloc[-1] if not rebalance_equity.empty else 0,
-            "switches": switches
+            "latest_equity": float(rebalance_equity.iloc[-1]) if not rebalance_equity.empty else 0,
+            "switches": int(switches)
         }
     except Exception as e:
         print(f"[ERROR] Rebalance failed: {e}")
