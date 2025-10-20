@@ -270,15 +270,15 @@ async def backtest(start_date: str = "2023-01-01", limit: int = 700, used_assets
         # Find common start date (earliest date where we have data for major assets)
         common_start = pd.to_datetime(start_date)
         
-        # Only consider BTC/ETH/SOL for common start (not SUI which starts later)
-        major_assets = ["BTC", "ETH", "SOL"]
+        # Only consider BTC/ETH/SOL/BNB for common start (not SUI which starts later in May 2023)
+        major_assets = ["BTC", "ETH", "SOL", "BNB"]
         asset_start_dates = {}
         
         for asset_name in major_assets:
             if asset_name in assets_data and not assets_data[asset_name].empty:
                 asset_start = assets_data[asset_name].index.min()
                 asset_start_dates[asset_name] = asset_start
-                print(f"[DEBUG] {asset_name} data starts: {asset_start}")
+                print(f"[DEBUG] {asset_name} data starts: {asset_start.date()}")
         
         # Use the requested start_date or earliest available
         if asset_start_dates:
@@ -288,6 +288,7 @@ async def backtest(start_date: str = "2023-01-01", limit: int = 700, used_assets
                 common_start = earliest_available
         
         print(f"[DEBUG] Using common start date: {common_start.date()}")
+        print(f"[DEBUG] This ensures all major assets (BTC/ETH/SOL/BNB) have data from this point")
 
         # Run tournament to get top assets
         print("[DEBUG] Running tournament...")
@@ -303,15 +304,20 @@ async def backtest(start_date: str = "2023-01-01", limit: int = 700, used_assets
         for asset in top_assets:
             if asset in assets_data:
                 aligned_assets[asset] = assets_data[asset][assets_data[asset].index >= common_start]
-                print(f"[DEBUG] Aligned {asset}: {len(aligned_assets[asset])} rows from {aligned_assets[asset].index.min().date()}")
+                print(f"[DEBUG] Aligned {asset}: {len(aligned_assets[asset])} rows from {aligned_assets[asset].index.min().date()} to {aligned_assets[asset].index.max().date()}")
+        
+        # Show if BNB or GOLD could be added to rotation pool
+        if "BNB" in assets_data and "BNB" not in aligned_assets:
+            print(f"[INFO] BNB available but not in top {used_assets} assets")
         
         # Align gold data too
         if not gold_data.empty:
             gold_data_aligned = gold_data[gold_data.index >= common_start]
-            print(f"[DEBUG] Aligned GOLD: {len(gold_data_aligned)} rows from {gold_data_aligned.index.min().date()}")
+            print(f"[DEBUG] Aligned GOLD: {len(gold_data_aligned)} rows from {gold_data_aligned.index.min().date()} to {gold_data_aligned.index.max().date()}")
+            print(f"[DEBUG] GOLD will be used as defensive position when use_gold={use_gold}")
         else:
             gold_data_aligned = pd.DataFrame()
-            print("[WARNING] No GOLD data available!")
+            print("[WARNING] No GOLD data available! Strategy will use CASH instead.")
         
         # Get rotation function based on active strategy
         use_rs = uses_relative_strength()

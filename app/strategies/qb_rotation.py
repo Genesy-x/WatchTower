@@ -8,27 +8,43 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def rotate_equity_qb(assets: dict, gold_df: pd.DataFrame, start_date: str = None, use_gold: bool = True) -> tuple:
+def rotate_equity_qb(assets: dict, gold_df: pd.DataFrame, start_date: str = None, use_gold: bool = True, force_start: bool = False) -> tuple:
     """
     QB-specific rotation with NO REPAINTING
     
     Key fix: We hold an asset and earn its return, THEN decide what to hold next day
     
     CRITICAL FIX: alloc_hist tracks what we're HOLDING, not what we DECIDED
+    
+    Args:
+        force_start: If True, force start from start_date even if some assets lack data
     """
     # Get common index across all assets
     all_indices = [df.index for df in assets.values()]
     if gold_df is not None and not gold_df.empty:
         all_indices.append(gold_df.index)
     
-    common_index = all_indices[0]
-    for idx in all_indices[1:]:
-        common_index = common_index.intersection(idx)
-    
-    if start_date:
+    if force_start and start_date:
+        # OPTION A: Force start from requested date, pad missing data
         start_dt = pd.to_datetime(start_date)
-        common_index = common_index[common_index >= start_dt]
-        print(f"[DEBUG QB] Filtering from start_date: {start_dt} -> {len(common_index)} days")
+        
+        # Find the earliest start among all assets
+        earliest_start = min(idx.min() for idx in all_indices)
+        latest_end = max(idx.max() for idx in all_indices)
+        
+        # Create full date range from forced start to latest end
+        common_index = pd.date_range(start=max(start_dt, earliest_start), end=latest_end, freq='D')
+        print(f"[DEBUG QB] FORCE START MODE: Using {start_dt.date()} (some assets may have gaps)")
+    else:
+        # OPTION B: Only use dates where ALL assets have data (fair comparison)
+        common_index = all_indices[0]
+        for idx in all_indices[1:]:
+            common_index = common_index.intersection(idx)
+        
+        if start_date:
+            start_dt = pd.to_datetime(start_date)
+            common_index = common_index[common_index >= start_dt]
+            print(f"[DEBUG QB] Filtering from start_date: {start_dt} -> {len(common_index)} days")
     
     if common_index.empty:
         raise ValueError("No overlapping dates across assets")
@@ -107,6 +123,19 @@ def rotate_equity_qb(assets: dict, gold_df: pd.DataFrame, start_date: str = None
             next_holding = 'GOLD'
         else:
             next_holding = 'CASH'
+        
+        # ANTI-CHURN: Only switch if new asset is significantly better (5% momentum edge)
+        # This reduces excessive switching when assets are nearly tied
+        if holding != 'CASH' and holding in bullish_assets.index:
+            current_holding_momentum = current_momentum[holding] if holding in current_momentum else -999
+            best_momentum = bullish_momentum.max() if not bullish_momentum.empty else -999
+            
+            # Only switch if the best asset has at least 5% better momentum
+            momentum_threshold = 0.05  # 5% edge required to switch
+            if best_momentum < current_holding_momentum + momentum_threshold:
+                next_holding = holding  # Stay in current position
+                if i < 10:
+                    print(f"[DEBUG QB]   Anti-churn: staying in {holding} (momentum edge insufficient)")
         
         # Track switches (only count actual changes)
         if next_holding != holding:
