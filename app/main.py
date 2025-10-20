@@ -176,6 +176,19 @@ async def store_sol(limit: int = 365, start_date: str = None, end_date: str = No
     db.close()
     return result
 
+@app.get("/store-bnb")
+async def store_bnb(limit: int = 365, start_date: str = None, end_date: str = None):
+    """Store BNB data"""
+    db = SessionLocal()
+    if start_date and end_date and limit == 365:
+        from datetime import datetime
+        start = datetime.strptime(start_date, "%Y-%m-%d")
+        end = datetime.strptime(end_date, "%Y-%m-%d")
+        limit = min((end - start).days + 1, 500)
+    result = store_single_asset(db, "BNBUSDT", limit=limit, start_date=start_date, end_date=end_date)
+    db.close()
+    return result
+
 @app.get("/store-paxg")
 async def store_paxg(limit: int = 365, start_date: str = None, end_date: str = None):
     """Store PAXG data"""
@@ -211,45 +224,76 @@ async def store_all(limit: int = 1, start_date: str = None):
     return {"status": "completed", "results": results}
 
 @app.get("/backtest")
-async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets: int = 3,
+async def backtest(start_date: str = "2023-01-01", limit: int = 700, used_assets: int = 3,
                    use_gold: bool = True, benchmark: str = "BTC", timeframe: str = "1d"):
     try:
         print("[DEBUG] Starting backtest")
-        # Fetch data from Neon with retry
+        
+        # CRITICAL FIX: Always load BNB and GOLD, regardless of used_assets
+        # First load the rotation candidates
         assets_data = {}
-        for symbol, _ in ALL_ASSETS[:used_assets + 1]:
+        rotation_assets = []
+        
+        for symbol, _ in ALL_ASSETS[:used_assets + 1]:  # Load used_assets + 1 for tournament
             instrument = symbol.replace("USDT", "")
             df = query_neon_with_retry(instrument)
             if not df.empty:
                 assets_data[instrument] = compute_indicators(df)
-                print(f"[DEBUG] Processed {instrument} data: {len(df)} rows")
+                rotation_assets.append((symbol, _))
+                print(f"[DEBUG] Loaded rotation asset {instrument}: {len(df)} rows")
+        
+        # CRITICAL: Now load BNB if not already loaded
+        if "BNB" not in assets_data:
+            print("[DEBUG] Loading BNB from Neon...")
+            bnb_df = query_neon_with_retry("BNB")
+            if not bnb_df.empty:
+                assets_data["BNB"] = compute_indicators(bnb_df)
+                print(f"[DEBUG] Loaded BNB: {len(bnb_df)} rows")
+            else:
+                print("[WARNING] BNB data not found in Neon!")
+        
+        # CRITICAL: Always load GOLD (PAXG) from Neon
+        print("[DEBUG] Loading GOLD (PAXG) from Neon...")
+        gold_df = query_neon_with_retry("PAXG")
+        if not gold_df.empty:
+            gold_data = compute_indicators(gold_df)
+            print(f"[DEBUG] Loaded GOLD from Neon: {len(gold_df)} rows")
+        else:
+            print("[WARNING] GOLD data not found in Neon! Fetching from API...")
+            market_data = fetch_market_data("PAXGUSDT", timeframe, limit)
+            gold_data = compute_indicators(market_data["ohlcv"])
+            print(f"[DEBUG] Fetched GOLD from API: {len(market_data['ohlcv'])} rows")
 
         if not assets_data:
             return {"error": "No data available in Neon"}
 
-        # FIX: Calculate common_start date from all assets
+        # Find common start date (earliest date where we have data for major assets)
         common_start = pd.to_datetime(start_date)
-        # Find the latest start date among all assets (to ensure all have data)
-        for asset_name, asset_df in assets_data.items():
-            if not asset_df.empty:
-                asset_start = asset_df.index.min()
-                if asset_start > common_start:
-                    common_start = asset_start
-                    print(f"[DEBUG] Adjusted common_start to {common_start} based on {asset_name}")
         
-        print(f"[DEBUG] Common start date: {common_start}")
+        # Only consider BTC/ETH/SOL for common start (not SUI which starts later)
+        major_assets = ["BTC", "ETH", "SOL"]
+        asset_start_dates = {}
+        
+        for asset_name in major_assets:
+            if asset_name in assets_data and not assets_data[asset_name].empty:
+                asset_start = assets_data[asset_name].index.min()
+                asset_start_dates[asset_name] = asset_start
+                print(f"[DEBUG] {asset_name} data starts: {asset_start}")
+        
+        # Use the requested start_date or earliest available
+        if asset_start_dates:
+            earliest_available = max(asset_start_dates.values())
+            if earliest_available > common_start:
+                print(f"[WARNING] Requested {common_start.date()} but earliest data is {earliest_available.date()}")
+                common_start = earliest_available
+        
+        print(f"[DEBUG] Using common start date: {common_start.date()}")
 
-        # Run tournament to get top assets - PASS assets_data!
+        # Run tournament to get top assets
         print("[DEBUG] Running tournament...")
-        print(f"[DEBUG] Processing {len(ALL_ASSETS[:used_assets + 1])} assets: {[s for s, _ in ALL_ASSETS[:used_assets + 1]]}")
-        tournament_results = run_tournament(ALL_ASSETS[:used_assets + 1], assets_data=assets_data)
+        print(f"[DEBUG] Processing {len(rotation_assets)} assets: {[s for s, _ in rotation_assets]}")
+        tournament_results = run_tournament(rotation_assets, assets_data=assets_data)
         print(f"[DEBUG] Tournament results ({len(tournament_results)} assets): {[r['symbol'] for r in tournament_results]}")
-
-        gold_data = assets_data.get("PAXG", pd.DataFrame())
-        if gold_data.empty and use_gold:
-            market_data = fetch_market_data("PAXGUSDT", timeframe, limit)
-            gold_data = compute_indicators(market_data["ohlcv"])
-            print(f"[DEBUG] Fetched gold data: {gold_data.head()}")
 
         top_assets = [result["symbol"].replace("USDT", "") for result in tournament_results[:used_assets]]
         print(f"[DEBUG] Top {used_assets} assets for rotation: {top_assets}")
@@ -259,9 +303,15 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
         for asset in top_assets:
             if asset in assets_data:
                 aligned_assets[asset] = assets_data[asset][assets_data[asset].index >= common_start]
+                print(f"[DEBUG] Aligned {asset}: {len(aligned_assets[asset])} rows from {aligned_assets[asset].index.min().date()}")
         
         # Align gold data too
-        gold_data_aligned = gold_data[gold_data.index >= common_start] if not gold_data.empty else pd.DataFrame()
+        if not gold_data.empty:
+            gold_data_aligned = gold_data[gold_data.index >= common_start]
+            print(f"[DEBUG] Aligned GOLD: {len(gold_data_aligned)} rows from {gold_data_aligned.index.min().date()}")
+        else:
+            gold_data_aligned = pd.DataFrame()
+            print("[WARNING] No GOLD data available!")
         
         # Get rotation function based on active strategy
         use_rs = uses_relative_strength()
@@ -289,7 +339,6 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
         print(f"[DEBUG] Metrics computed: {metrics_filtered}")
 
         # The equity_filtered IS the strategy equity - don't recalculate it!
-        # Just convert it to the format needed for response
         strategy_equity = equity_filtered.copy()
         
         # Calculate strategy metrics from the rotation equity
@@ -305,7 +354,7 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
         
         strategy_metrics = {
             'total_return_%': strategy_total_return,
-            'buy_and_hold_%': 0,  # Will calculate from benchmark
+            'buy_and_hold_%': 0,
             'max_drawdown_%': strategy_max_dd,
             'final_equity': strategy_equity.iloc[-1],
             'sharpe': strategy_sharpe
@@ -325,7 +374,7 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
                 # Align to strategy equity index
                 benchmark_equity = benchmark_equity.reindex(equity_filtered.index, method='ffill')
                 
-                print(f"[DEBUG] Benchmark ({benchmark}): First close = {first_close:.2f}, Last close = {benchmark_df['close'].iloc[-1]:.2f}")
+                print(f"[DEBUG] Benchmark ({benchmark}): {first_close:.2f} -> {benchmark_df['close'].iloc[-1]:.2f}")
             else:
                 benchmark_equity = pd.Series(1.0, index=equity_filtered.index)
         else:
@@ -336,25 +385,23 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
         
         print(f"[DEBUG] Benchmark return: {benchmark_total_return:.2f}%")
 
-        # FIX: Asset table equity calculation - use common start date
+        # Asset table equity calculation - use common start date
         asset_table = tournament_results[:used_assets + 1] if tournament_results else []
         for asset in asset_table:
             symbol = asset["symbol"].replace("USDT", "")
             if symbol in assets_data:
-                # IMPORTANT: Use data aligned to common start date for fair comparison
                 asset_df = assets_data[symbol].copy()
-                asset_df = asset_df[asset_df.index >= common_start]  # Align to same start
+                asset_df = asset_df[asset_df.index >= common_start]
                 
                 if len(asset_df) > 0:
-                    # Calculate buy-and-hold return percentage from common start
                     first_close = asset_df["close"].iloc[0]
                     last_close = asset_df["close"].iloc[-1]
                     
-                    # Return as percentage gain, not multiplier
+                    # Return as percentage gain
                     return_pct = ((last_close - first_close) / first_close) * 100
                     asset["equity"] = return_pct
                     
-                    print(f"[DEBUG] {symbol} equity: {first_close:.2f} -> {last_close:.2f} = {return_pct:.2f}%")
+                    print(f"[DEBUG] {symbol}: {first_close:.2f} -> {last_close:.2f} = {return_pct:.2f}%")
                 else:
                     asset["equity"] = 0.0
             else:
@@ -362,8 +409,9 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
 
         top3 = [result["symbol"] for result in tournament_results[:3]] if tournament_results else []
         
-        # Fix: Safe access to last element of list
-        current_alloc = alloc_hist_filtered[-1] if len(alloc_hist_filtered) > 0 else "CASH"
+        # Extract current allocation
+        current_alloc = str(alloc_hist_filtered[-1]) if len(alloc_hist_filtered) > 0 else "CASH"
+        print(f"[DEBUG] Current allocation: {current_alloc}")
 
         metrics_table = {
             **metrics_filtered,
@@ -372,7 +420,7 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
             "NetProfit": strategy_metrics["total_return_%"]
         }
 
-        # Convert all numpy types to native Python types for JSON serialization
+        # Convert all numpy types to native Python types
         metrics_table_clean = {
             k: float(v) if isinstance(v, (np.floating, np.integer)) else v 
             for k, v in metrics_table.items()
@@ -389,16 +437,14 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
             "buy_hold_equity": {str(k): float(v) for k, v in benchmark_equity.items()} if not benchmark_equity.empty else {}
         }
 
-        # Get end_date BEFORE any conversions
+        # Store in database
         end_date = equity_filtered.index[-1].to_pydatetime() if not equity_filtered.empty else datetime.now()
 
         db = SessionLocal()
         
-        # Convert all data to JSON-serializable format
         equity_dict = {str(k): float(v) for k, v in strategy_equity.items()}
         alloc_dict = {str(k): str(v) for k, v in zip(equity_filtered.index, alloc_hist_filtered)}
         
-        # Convert numpy types in metrics to native Python types
         metrics_serializable = {
             k: float(v) if isinstance(v, (np.floating, np.integer)) else v 
             for k, v in metrics_table.items()
@@ -427,56 +473,58 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
 async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str = "1d", limit: int = 1):
     try:
         print("[DEBUG] Starting rebalance")
-        # Fetch data from Neon with retry
+        
+        # Load rotation candidates
         assets_data = {}
+        rotation_assets = []
+        
         for symbol, _ in ALL_ASSETS[:used_assets + 1]:
             instrument = symbol.replace("USDT", "")
             df = query_neon_with_retry(instrument)
             if not df.empty:
                 assets_data[instrument] = compute_indicators(df)
-                print(f"[DEBUG] Processed {instrument} data: {len(df)} rows")
+                rotation_assets.append((symbol, _))
+                print(f"[DEBUG] Loaded {instrument}: {len(df)} rows")
+        
+        # Always load GOLD
+        print("[DEBUG] Loading GOLD (PAXG) from Neon...")
+        gold_df = query_neon_with_retry("PAXG")
+        if not gold_df.empty:
+            gold_data = compute_indicators(gold_df)
+            print(f"[DEBUG] Loaded GOLD: {len(gold_df)} rows")
+        else:
+            print("[WARNING] Fetching GOLD from API...")
+            market_data = fetch_market_data("PAXGUSDT", timeframe, limit=700)
+            gold_data = compute_indicators(market_data["ohlcv"])
 
         if not assets_data:
             return {"error": "No data available in Neon"}
 
-        # Run tournament to get top assets - PASS assets_data!
+        # Run tournament
         print("[DEBUG] Running tournament...")
-        print(f"[DEBUG] Processing {len(ALL_ASSETS[:used_assets + 1])} assets: {[s for s, _ in ALL_ASSETS[:used_assets + 1]]}")
-        tournament_results = run_tournament(ALL_ASSETS[:used_assets + 1], assets_data=assets_data)
-        print(f"[DEBUG] Tournament results ({len(tournament_results)} assets): {[r['symbol'] for r in tournament_results]}")
-
-        gold_data = assets_data.get("PAXG", pd.DataFrame())
-        if gold_data.empty and use_gold:
-            market_data = fetch_market_data("PAXGUSDT", timeframe, limit)
-            gold_data = compute_indicators(market_data["ohlcv"])
-            print(f"[DEBUG] Fetched gold data: {gold_data.head()}")
+        tournament_results = run_tournament(rotation_assets, assets_data=assets_data)
+        print(f"[DEBUG] Tournament results: {[r['symbol'] for r in tournament_results]}")
 
         top_assets = [result["symbol"].replace("USDT", "") for result in tournament_results[:used_assets]]
         print(f"[DEBUG] Top assets: {top_assets}")
         
-        # Get rotation function based on active strategy
+        # Get rotation function
         use_rs = uses_relative_strength()
         
         if use_rs:
-            # Momentum-based rotation (simple strategy)
             from app.strategies.universal_rs import rotate_equity
             rs_data = compute_relative_strength({k: assets_data[k] for k in top_assets if k in assets_data}, filtered=True)
-            print(f"[DEBUG] RS data shape: {rs_data.shape if not rs_data.empty else 'Empty'}")
             
             equity_filtered, alloc_hist, switches = rotate_equity(
                 rs_data, {k: assets_data[k] for k in top_assets if k in assets_data}, gold_data, use_gold=use_gold
             )
         else:
-            # Signal-based rotation (QB strategy)
             from app.strategies.qb_rotation import rotate_equity_qb
-            print(f"[DEBUG] Using QB signal-based rotation")
+            print(f"[DEBUG] Using QB rotation")
             equity_filtered, alloc_hist, switches = rotate_equity_qb(
                 {k: assets_data[k] for k in top_assets if k in assets_data}, gold_data, use_gold=use_gold
             )
         
-        print(f"[DEBUG] Equity filtered length: {len(equity_filtered)}")
-
-        # The equity_filtered IS the strategy equity
         rebalance_equity = equity_filtered.copy()
         
         # Calculate metrics
@@ -489,17 +537,8 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
         rebalance_drawdowns = (rebalance_equity / rebalance_equity.cummax()) - 1
         rebalance_max_dd = rebalance_drawdowns.min() * 100
         rebalance_total_return = (rebalance_equity.iloc[-1] - 1) * 100
-        
-        rebalance_metrics = {
-            'total_return_%': rebalance_total_return,
-            'max_drawdown_%': rebalance_max_dd,
-            'final_equity': rebalance_equity.iloc[-1],
-            'sharpe': rebalance_sharpe
-        }
-        
-        print(f"[DEBUG] Rebalance metrics: {rebalance_metrics}")
 
-        # FIX: Calculate common start for asset table
+        # Asset table
         common_start = None
         for asset_name, asset_df in assets_data.items():
             if not asset_df.empty:
@@ -513,15 +552,12 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
             if symbol in assets_data:
                 asset_df = assets_data[symbol].copy()
                 
-                # Align to common start if available
                 if common_start is not None:
                     asset_df = asset_df[asset_df.index >= common_start]
                 
                 if len(asset_df) > 0:
                     first_close = asset_df["close"].iloc[0]
                     last_close = asset_df["close"].iloc[-1]
-                    
-                    # Return as percentage, not multiplier
                     return_pct = ((last_close - first_close) / first_close) * 100
                     asset["equity"] = return_pct
                 else:
@@ -530,9 +566,8 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
                 asset["equity"] = 0.0
 
         top3 = [result["symbol"] for result in tournament_results[:3]] if tournament_results else []
-        
-        # Fix: Safe access to last element of list
-        current_alloc = alloc_hist[-1] if len(alloc_hist) > 0 else "CASH"
+        current_alloc = str(alloc_hist[-1]) if len(alloc_hist) > 0 else "CASH"
+        print(f"[DEBUG REBALANCE] Current allocation: {current_alloc}")
 
         return {
             "current_allocation": current_alloc,
@@ -547,12 +582,9 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
         traceback.print_exc()
         return {"error": str(e)}
 
-# Scheduler for daily updates post-UTC close
+# Scheduler for daily updates
 def daily_update():
-    """
-    Runs daily at 00:05 UTC (5 minutes after market close)
-    Fetches latest data and stores in Neon
-    """
+    """Runs daily at 00:05 UTC"""
     print(f"[SCHEDULER] Daily update started at {datetime.utcnow()} UTC")
     db = SessionLocal()
     
@@ -564,17 +596,16 @@ def daily_update():
             if result.get("success"):
                 stored = result.get("stored", 0)
                 if stored > 0:
-                    print(f"[SCHEDULER] ✓ {symbol} updated successfully ({stored} new rows)")
+                    print(f"[SCHEDULER] ✓ {symbol} updated ({stored} rows)")
                 else:
                     print(f"[SCHEDULER] ○ {symbol} already up to date")
             else:
-                print(f"[SCHEDULER] ✗ {symbol} update failed: {result.get('error', 'Unknown')}")
+                print(f"[SCHEDULER] ✗ {symbol} failed: {result.get('error')}")
         
-        print(f"[SCHEDULER] Daily update completed at {datetime.utcnow()} UTC")
-        print(f"[SCHEDULER] Next update scheduled for tomorrow 00:05 UTC")
+        print(f"[SCHEDULER] Completed at {datetime.utcnow()} UTC")
         
     except Exception as e:
-        print(f"[SCHEDULER ERROR] Daily update failed: {e}")
+        print(f"[SCHEDULER ERROR] {e}")
         import traceback
         traceback.print_exc()
     finally:
@@ -585,15 +616,10 @@ scheduler.add_job(
     daily_update, 
     'cron', 
     hour=0, 
-    minute=5,  # 5 minutes after UTC midnight
+    minute=5,
     timezone='UTC'
 )
 scheduler.start()
-
-# Optional: Run update on startup to ensure we have latest data
-print("[STARTUP] Checking for missing data...")
-# Uncomment the line below to fetch data on startup
-# daily_update()
 
 print("[STARTUP] Scheduler initialized. Daily updates at 00:05 UTC")
 

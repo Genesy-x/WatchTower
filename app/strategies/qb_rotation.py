@@ -28,9 +28,14 @@ def rotate_equity_qb(assets: dict, gold_df: pd.DataFrame, start_date: str = None
     if start_date:
         start_dt = pd.to_datetime(start_date)
         common_index = common_index[common_index >= start_dt]
+        print(f"[DEBUG QB] Filtering from start_date: {start_dt} -> {len(common_index)} days")
     
     if common_index.empty:
         raise ValueError("No overlapping dates across assets")
+    
+    # Log the actual date range being used
+    print(f"[DEBUG QB] Backtest period: {common_index[0].date()} to {common_index[-1].date()} ({len(common_index)} days)")
+    print(f"[DEBUG QB] Assets in rotation: {list(assets.keys())}")
     
     # Prepare data
     qb_signals = {}
