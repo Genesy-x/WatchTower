@@ -211,7 +211,7 @@ async def store_all(limit: int = 1, start_date: str = None):
     return {"status": "completed", "results": results}
 
 @app.get("/backtest")
-async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets: int = 3,
+async def backtest(start_date: str = "2023-01-01", limit: int = 700, used_assets: int = 3,
                    use_gold: bool = True, benchmark: str = "BTC", timeframe: str = "1d"):
     try:
         print("[DEBUG] Starting backtest")
@@ -228,16 +228,21 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
             return {"error": "No data available in Neon"}
 
         # FIX: Calculate common_start date from all assets
+        # This ensures we start when ALL assets have data (important for SUI which starts May 2023)
         common_start = pd.to_datetime(start_date)
-        # Find the latest start date among all assets (to ensure all have data)
+        
+        # Find the LATEST start date among all assets to ensure fair comparison
+        asset_start_dates = {}
         for asset_name, asset_df in assets_data.items():
             if not asset_df.empty:
                 asset_start = asset_df.index.min()
+                asset_start_dates[asset_name] = asset_start
+                print(f"[DEBUG] {asset_name} data starts: {asset_start}")
                 if asset_start > common_start:
                     common_start = asset_start
-                    print(f"[DEBUG] Adjusted common_start to {common_start} based on {asset_name}")
         
-        print(f"[DEBUG] Common start date: {common_start}")
+        print(f"[DEBUG] Common start date: {common_start} (ensures all assets have data)")
+        print(f"[DEBUG] Asset start dates: {asset_start_dates}")
 
         # Run tournament to get top assets - PASS assets_data!
         print("[DEBUG] Running tournament...")
@@ -362,8 +367,16 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
 
         top3 = [result["symbol"] for result in tournament_results[:3]] if tournament_results else []
         
-        # Fix: Safe access to last element of list
-        current_alloc = alloc_hist_filtered[-1] if len(alloc_hist_filtered) > 0 else "CASH"
+        # FIX: Extract current allocation properly
+        # alloc_hist_filtered is a LIST of allocations, one per day
+        # The LAST element is what we're holding NOW
+        if len(alloc_hist_filtered) > 0:
+            current_alloc = str(alloc_hist_filtered[-1])
+            print(f"[DEBUG] Current allocation (last in history): {current_alloc}")
+            print(f"[DEBUG] Last 5 allocations: {alloc_hist_filtered[-5:]}")
+        else:
+            current_alloc = "CASH"
+            print(f"[DEBUG] No allocation history, defaulting to CASH")
 
         metrics_table = {
             **metrics_filtered,
@@ -531,8 +544,14 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
 
         top3 = [result["symbol"] for result in tournament_results[:3]] if tournament_results else []
         
-        # Fix: Safe access to last element of list
-        current_alloc = alloc_hist[-1] if len(alloc_hist) > 0 else "CASH"
+        # FIX: Extract current allocation properly from alloc_hist
+        if len(alloc_hist) > 0:
+            current_alloc = str(alloc_hist[-1])
+            print(f"[DEBUG REBALANCE] Current allocation: {current_alloc}")
+            print(f"[DEBUG REBALANCE] Last 5 allocations: {alloc_hist[-5:]}")
+        else:
+            current_alloc = "CASH"
+            print(f"[DEBUG REBALANCE] No allocation history, defaulting to CASH")
 
         return {
             "current_allocation": current_alloc,
