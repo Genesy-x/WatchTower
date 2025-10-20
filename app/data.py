@@ -202,9 +202,12 @@ def fetch_historical_ohlc_paxg(start: str = None, end: str = None, limit: int = 
     return pd.DataFrame()
 
 def fetch_historical_ohlc_sui(start: str = None, end: str = None, limit: int = 1):
-    """Fetch daily historical OHLCV data for SUI-USDT on Binance."""
+    """Fetch daily historical OHLCV data for SUI-USDT on Binance.
+    
+    Note: SUI data is only available from May 2023 onwards.
+    """
     if start is None:
-        start = "2024-01-01"
+        start = "2023-05-01"  # SUI launched May 2023
     if end is None:
         end = datetime.now().strftime("%Y-%m-%d")
     

@@ -240,7 +240,16 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
             print(f"[DEBUG] Fetched gold data: {gold_data.head()}")
 
         top_assets = [result["symbol"].replace("USDT", "") for result in tournament_results[:used_assets]]
-        print(f"[DEBUG] Top assets: {top_assets}")
+        print(f"[DEBUG] Top {used_assets} assets for rotation: {top_assets}")
+        
+        # Align all assets to common start date
+        aligned_assets = {}
+        for asset in top_assets:
+            if asset in assets_data:
+                aligned_assets[asset] = assets_data[asset][assets_data[asset].index >= common_start]
+        
+        # Align gold data too
+        gold_data_aligned = gold_data[gold_data.index >= common_start] if not gold_data.empty else pd.DataFrame()
         
         # Get rotation function based on active strategy
         use_rs = uses_relative_strength()
@@ -248,18 +257,18 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
         if use_rs:
             # Momentum-based rotation (simple strategy)
             from app.strategies.universal_rs import rotate_equity
-            rs_data = compute_relative_strength({k: assets_data[k] for k in top_assets if k in assets_data}, filtered=True)
+            rs_data = compute_relative_strength(aligned_assets, filtered=True)
             print(f"[DEBUG] RS data shape: {rs_data.shape if not rs_data.empty else 'Empty'}")
             
             equity_filtered, alloc_hist_filtered, switches_filtered = rotate_equity(
-                rs_data, {k: assets_data[k] for k in top_assets if k in assets_data}, gold_data, start_date=start_date, use_gold=use_gold
+                rs_data, aligned_assets, gold_data_aligned, start_date=str(common_start.date()), use_gold=use_gold
             )
         else:
             # Signal-based rotation (QB strategy)
             from app.strategies.qb_rotation import rotate_equity_qb
             print(f"[DEBUG] Using QB signal-based rotation")
             equity_filtered, alloc_hist_filtered, switches_filtered = rotate_equity_qb(
-                {k: assets_data[k] for k in top_assets if k in assets_data}, gold_data, start_date=start_date, use_gold=use_gold
+                aligned_assets, gold_data_aligned, start_date=str(common_start.date()), use_gold=use_gold
             )
         
         print(f"[DEBUG] Equity filtered length: {len(equity_filtered)}")
@@ -309,15 +318,24 @@ async def backtest(start_date: str = "2024-01-01", limit: int = 700, used_assets
         
         print(f"[DEBUG] Benchmark return: {benchmark_total_return:.2f}%")
 
-        # Asset table with equity from compute_equity
+        # Asset table with equity calculated from COMMON START DATE
         asset_table = tournament_results[:used_assets + 1] if tournament_results else []
         for asset in asset_table:
             symbol = asset["symbol"].replace("USDT", "")
             if symbol in assets_data:
+                # IMPORTANT: Use data aligned to common start date for fair comparison
                 asset_df = assets_data[symbol].copy()
-                asset_df["signal"] = 1  # Buy-and-hold for each asset
-                _, asset_metrics = compute_equity(asset_df)
-                asset["equity"] = asset_metrics["final_equity"]
+                asset_df = asset_df[asset_df.index >= common_start]  # Align to same start
+                
+                if len(asset_df) > 0:
+                    # Calculate buy-and-hold from common start
+                    first_close = asset_df["close"].iloc[0]
+                    last_close = asset_df["close"].iloc[-1]
+                    equity_multiplier = last_close / first_close
+                    asset["equity"] = equity_multiplier
+                    print(f"[DEBUG] {symbol} equity: {first_close:.2f} -> {last_close:.2f} = {equity_multiplier:.3f}x")
+                else:
+                    asset["equity"] = 1.0
 
         top3 = [result["symbol"] for result in tournament_results[:3]] if tournament_results else []
         
@@ -462,10 +480,15 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
         for asset in asset_table:
             symbol = asset["symbol"].replace("USDT", "")
             if symbol in assets_data:
+                # Calculate simple buy-and-hold equity (first close to last close)
                 asset_df = assets_data[symbol].copy()
-                asset_df["signal"] = 1  # Buy-and-hold for each asset
-                _, asset_metrics = compute_equity(asset_df)
-                asset["equity"] = asset_metrics["final_equity"]
+                if len(asset_df) > 0:
+                    first_close = asset_df["close"].iloc[0]
+                    last_close = asset_df["close"].iloc[-1]
+                    equity_multiplier = last_close / first_close
+                    asset["equity"] = equity_multiplier
+                else:
+                    asset["equity"] = 1.0
 
         top3 = [result["symbol"] for result in tournament_results[:3]] if tournament_results else []
         
