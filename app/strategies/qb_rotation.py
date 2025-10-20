@@ -1,5 +1,5 @@
 """
-QB Strategy Rotation Logic - FIXED FOR REPAINTING
+QB Strategy Rotation Logic - FIXED FOR REPAINTING & ALLOCATION TRACKING
 Uses signal-based allocation with proper lagging
 """
 import pandas as pd
@@ -13,6 +13,8 @@ def rotate_equity_qb(assets: dict, gold_df: pd.DataFrame, start_date: str = None
     QB-specific rotation with NO REPAINTING
     
     Key fix: We hold an asset and earn its return, THEN decide what to hold next day
+    
+    CRITICAL FIX: alloc_hist tracks what we're HOLDING, not what we DECIDED
     """
     # Get common index across all assets
     all_indices = [df.index for df in assets.values()]
@@ -39,13 +41,13 @@ def rotate_equity_qb(assets: dict, gold_df: pd.DataFrame, start_date: str = None
         df_reindexed = df.reindex(common_index)
         qb_signals[name] = df_reindexed['QB'].fillna(0)
         momentum_data[name] = df_reindexed['Momentum'].fillna(0)
-        close_prices[name] = df_reindexed['close'].fillna(method='ffill')
+        close_prices[name] = df_reindexed['close'].ffill()  # Fixed deprecated syntax
     
     # Add GOLD
     if gold_df is not None and not gold_df.empty:
         gold_reindexed = gold_df.reindex(common_index)
         gold_qb = gold_reindexed['QB'].fillna(0)
-        gold_close = gold_reindexed['close'].fillna(method='ffill')
+        gold_close = gold_reindexed['close'].ffill()  # Fixed deprecated syntax
     else:
         gold_qb = pd.Series(0, index=common_index)
         gold_close = pd.Series(1, index=common_index)
@@ -57,14 +59,17 @@ def rotate_equity_qb(assets: dict, gold_df: pd.DataFrame, start_date: str = None
     
     # Initialize tracking
     equity = pd.Series(1.0, index=common_index, name='Equity')
-    holding = None  # What we're CURRENTLY holding
+    holding = 'CASH'  # Start with CASH instead of None
     alloc_hist = []
     switches = 0
     
     for i in range(len(common_index)):
         date = common_index[i]
         
-        # STEP 1: Calculate return from what we HELD during this period
+        # STEP 1: Record what we're HOLDING at start of this day
+        alloc_hist.append(holding)
+        
+        # STEP 2: Calculate return from what we HELD during this period
         if i == 0:
             period_return = 0  # No return on first day
         elif holding == 'CASH':
@@ -82,9 +87,9 @@ def rotate_equity_qb(assets: dict, gold_df: pd.DataFrame, start_date: str = None
         
         # Debug first few days
         if i < 5:
-            print(f"[DEBUG QB] Day {i} ({date}): HELD {holding}, Return={period_return*100:.2f}%, Equity={equity.iloc[i]:.4f}")
+            print(f"[DEBUG QB] Day {i} ({date.date()}): HOLDING={holding}, Return={period_return*100:.2f}%, Equity={equity.iloc[i]:.4f}")
         
-        # STEP 2: Decide what to hold TOMORROW based on TODAY'S signal
+        # STEP 3: Look at TODAY'S signals to decide what to hold TOMORROW
         current_qb = qb_df.iloc[i]
         current_momentum = momentum_df.iloc[i]
         bullish_assets = current_qb[current_qb == 1]
@@ -98,22 +103,29 @@ def rotate_equity_qb(assets: dict, gold_df: pd.DataFrame, start_date: str = None
         else:
             next_holding = 'CASH'
         
-        # Track switches
+        # Track switches (only count actual changes)
         if next_holding != holding:
             switches += 1
-            if i < 10:
-                logger.info(f"Switch at {date}: {holding} -> {next_holding}")
+            if i < 10 or i > len(common_index) - 5:
+                print(f"[DEBUG QB] Switch at {date.date()}: {holding} -> {next_holding}")
         
         if i < 5:
-            print(f"[DEBUG QB] Signal says hold {next_holding} tomorrow (QB={current_qb.to_dict()})")
+            print(f"[DEBUG QB]   Signals: QB={current_qb.to_dict()}, Next={next_holding}")
         
-        # Update holding for next period
+        # Update holding for tomorrow
         holding = next_holding
-        alloc_hist.append(holding)
     
+    print(f"\n[DEBUG QB] ===== FINAL SUMMARY =====")
     print(f"[DEBUG QB] Total switches: {switches}")
-    print(f"[DEBUG QB] Final allocation: {alloc_hist[-1] if alloc_hist else 'None'}")
+    print(f"[DEBUG QB] Final holding (what we're holding NOW): {holding}")
+    print(f"[DEBUG QB] alloc_hist[-1] (last recorded): {alloc_hist[-1] if alloc_hist else 'None'}")
+    print(f"[DEBUG QB] Last 5 holdings: {alloc_hist[-5:]}")
     print(f"[DEBUG QB] Final equity: {equity.iloc[-1]:.4f}")
+    print(f"[DEBUG QB] Total return: {(equity.iloc[-1] - 1) * 100:.2f}%")
+    
+    # Verify allocation history length matches equity length
+    if len(alloc_hist) != len(equity):
+        print(f"[WARNING] alloc_hist length ({len(alloc_hist)}) != equity length ({len(equity)})")
     
     return equity.ffill(), alloc_hist, switches
 
