@@ -229,30 +229,23 @@ async def backtest(start_date: str = "2023-01-01", limit: int = 700, used_assets
     try:
         print("[DEBUG] Starting backtest")
         
-        # CRITICAL FIX: Always load BNB and GOLD, regardless of used_assets
-        # First load the rotation candidates
+        # CRITICAL FIX: Load ALL crypto assets for tournament evaluation
+        # Don't limit by used_assets - let the tournament pick the best ones!
         assets_data = {}
-        rotation_assets = []
+        all_crypto_assets = [asset for asset in ALL_ASSETS if asset[0] != "PAXGUSDT"]  # Exclude GOLD from rotation pool
         
-        for symbol, _ in ALL_ASSETS[:used_assets + 1]:  # Load used_assets + 1 for tournament
+        print(f"[DEBUG] Loading ALL crypto assets for tournament evaluation: {[s for s, _ in all_crypto_assets]}")
+        
+        for symbol, _ in all_crypto_assets:
             instrument = symbol.replace("USDT", "")
             df = query_neon_with_retry(instrument)
             if not df.empty:
                 assets_data[instrument] = compute_indicators(df)
-                rotation_assets.append((symbol, _))
-                print(f"[DEBUG] Loaded rotation asset {instrument}: {len(df)} rows")
-        
-        # CRITICAL: Now load BNB if not already loaded
-        if "BNB" not in assets_data:
-            print("[DEBUG] Loading BNB from Neon...")
-            bnb_df = query_neon_with_retry("BNB")
-            if not bnb_df.empty:
-                assets_data["BNB"] = compute_indicators(bnb_df)
-                print(f"[DEBUG] Loaded BNB: {len(bnb_df)} rows")
+                print(f"[DEBUG] Loaded {instrument}: {len(df)} rows")
             else:
-                print("[WARNING] BNB data not found in Neon!")
+                print(f"[WARNING] {instrument} not found in Neon!")
         
-        # CRITICAL: Always load GOLD (PAXG) from Neon
+        # CRITICAL: Always load GOLD (PAXG) from Neon separately
         print("[DEBUG] Loading GOLD (PAXG) from Neon...")
         gold_df = query_neon_with_retry("PAXG")
         if not gold_df.empty:
@@ -266,6 +259,8 @@ async def backtest(start_date: str = "2023-01-01", limit: int = 700, used_assets
 
         if not assets_data:
             return {"error": "No data available in Neon"}
+        
+        print(f"[DEBUG] Total assets loaded for evaluation: {len(assets_data)} - {list(assets_data.keys())}")
 
         # Find common start date (earliest date where we have data for major assets)
         common_start = pd.to_datetime(start_date)
@@ -290,10 +285,9 @@ async def backtest(start_date: str = "2023-01-01", limit: int = 700, used_assets
         print(f"[DEBUG] Using common start date: {common_start.date()}")
         print(f"[DEBUG] This ensures all major assets (BTC/ETH/SOL/BNB) have data from this point")
 
-        # Run tournament to get top assets
-        print("[DEBUG] Running tournament...")
-        print(f"[DEBUG] Processing {len(rotation_assets)} assets: {[s for s, _ in rotation_assets]}")
-        tournament_results = run_tournament(rotation_assets, assets_data=assets_data)
+        # Run tournament to get top assets - NOW WITH ALL ASSETS
+        print(f"[DEBUG] Running tournament with {len(all_crypto_assets)} assets...")
+        tournament_results = run_tournament(all_crypto_assets, assets_data=assets_data)
         print(f"[DEBUG] Tournament results ({len(tournament_results)} assets): {[r['symbol'] for r in tournament_results]}")
 
         top_assets = [result["symbol"].replace("USDT", "") for result in tournament_results[:used_assets]]
@@ -480,16 +474,17 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
     try:
         print("[DEBUG] Starting rebalance")
         
-        # Load rotation candidates
+        # Load ALL crypto assets for tournament (not just first N)
         assets_data = {}
-        rotation_assets = []
+        all_crypto_assets = [asset for asset in ALL_ASSETS if asset[0] != "PAXGUSDT"]
         
-        for symbol, _ in ALL_ASSETS[:used_assets + 1]:
+        print(f"[DEBUG] Loading ALL crypto assets: {[s for s, _ in all_crypto_assets]}")
+        
+        for symbol, _ in all_crypto_assets:
             instrument = symbol.replace("USDT", "")
             df = query_neon_with_retry(instrument)
             if not df.empty:
                 assets_data[instrument] = compute_indicators(df)
-                rotation_assets.append((symbol, _))
                 print(f"[DEBUG] Loaded {instrument}: {len(df)} rows")
         
         # Always load GOLD
@@ -505,10 +500,12 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
 
         if not assets_data:
             return {"error": "No data available in Neon"}
+        
+        print(f"[DEBUG] Total assets loaded: {len(assets_data)} - {list(assets_data.keys())}")
 
-        # Run tournament
-        print("[DEBUG] Running tournament...")
-        tournament_results = run_tournament(rotation_assets, assets_data=assets_data)
+        # Run tournament with ALL assets
+        print(f"[DEBUG] Running tournament with {len(all_crypto_assets)} assets...")
+        tournament_results = run_tournament(all_crypto_assets, assets_data=assets_data)
         print(f"[DEBUG] Tournament results: {[r['symbol'] for r in tournament_results]}")
 
         top_assets = [result["symbol"].replace("USDT", "") for result in tournament_results[:used_assets]]
