@@ -4,8 +4,8 @@ from app.data import fetch_market_data
 from app.strategy_manager import compute_indicators, uses_relative_strength
 from app.strategies.universal_rs import compute_relative_strength, compute_metrics
 from app.tournament_pairwise import run_pairwise_tournament, analyze_tournament_results
-from app.tournament import run_tournament
 from app.majorsync_rotation import rotate_equity_majorsync
+from app.tournament import run_tournament
 from app.db.database import SessionLocal, BacktestRun, OHLCVData
 from app.equity import compute_equity
 from datetime import datetime, timedelta
@@ -373,14 +373,20 @@ async def backtest(start_date: str = "2023-01-01", limit: int = 700, used_assets
                     first_close = asset_df["close"].iloc[0]
                     last_close = asset_df["close"].iloc[-1]
                     return_pct = ((last_close - first_close) / first_close) * 100
+                    current_price = last_close
                 else:
                     return_pct = 0.0
+                    current_price = 0.0
             else:
                 return_pct = 0.0
+                current_price = 0.0
             
             asset_table.append({
                 "symbol": f"{asset_symbol}USDT",
+                "name": asset_symbol,  # Short name (BTC, ETH, etc.)
                 "score": float(score),
+                "price": float(current_price),
+                "market_cap": 0,  # Not used in this implementation
                 "equity": return_pct,
                 "rank": rank_idx
             })
@@ -780,14 +786,20 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
                     first_close = asset_df["close"].iloc[0]
                     last_close = asset_df["close"].iloc[-1]
                     return_pct = ((last_close - first_close) / first_close) * 100
+                    current_price = last_close
                 else:
                     return_pct = 0.0
+                    current_price = 0.0
             else:
                 return_pct = 0.0
+                current_price = 0.0
             
             asset_table.append({
                 "symbol": f"{asset_symbol}USDT",
+                "name": asset_symbol,
                 "score": float(score),
+                "price": float(current_price),
+                "market_cap": 0,
                 "equity": return_pct,
                 "rank": rank_idx
             })
