@@ -512,7 +512,8 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
             tournament_scores,
             gold_data,
             use_gold=use_gold,
-            allocation_mode=allocation_mode
+            allocation_mode=allocation_mode,
+            allocation_history={str(k): str(v) for k, v in zip(equity_filtered.index, alloc_hist_filtered)}
         )
         
         rebalance_equity = equity_filtered.copy()
