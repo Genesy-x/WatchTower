@@ -28,14 +28,38 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-ALL_ASSETS = [
-    ("BTCUSDT", "bitcoin"),
-    ("ETHUSDT", "ethereum"),
-    ("SOLUSDT", "solana"),
-    ("SUIUSDT", "sui"),
-    ("BNBUSDT", "bnb"),
-    ("PAXGUSDT", "pax-gold")
+# ============================================================
+# ASSET CONFIGURATION - Toggle assets on/off here
+# ============================================================
+ASSET_CONFIG = {
+    "BTC": True,   # Bitcoin
+    "ETH": True,   # Ethereum
+    "SOL": True,   # Solana
+    "SUI": True,   # Sui
+    "BNB": False,   # Binance Coin - Set to False to exclude
+    "GOLD": True,  # Gold (PAXG) - Set to False to disable gold fallback
+}
+
+# Full asset list (don't modify this)
+ALL_ASSETS_FULL = [
+    ("BTCUSDT", "bitcoin", "BTC"),
+    ("ETHUSDT", "ethereum", "ETH"),
+    ("SOLUSDT", "solana", "SOL"),
+    ("SUIUSDT", "sui", "SUI"),
+    ("BNBUSDT", "bnb", "BNB"),
+    ("PAXGUSDT", "pax-gold", "GOLD")
 ]
+
+# Filter based on configuration
+ALL_ASSETS = [(symbol, name) for symbol, name, key in ALL_ASSETS_FULL if ASSET_CONFIG.get(key, True)]
+
+print(f"\n{'='*60}")
+print("ASSET CONFIGURATION")
+print(f"{'='*60}")
+for key, enabled in ASSET_CONFIG.items():
+    status = "✓ ENABLED" if enabled else "✗ DISABLED"
+    print(f"  {key:6s}: {status}")
+print(f"{'='*60}\n")
 
 def store_single_asset(db, name, timeframe: str = "1d", limit: int = 700, start_date: str = None, end_date: str = None):
     """Store OHLCV data - SIMPLIFIED"""
@@ -228,26 +252,39 @@ async def store_all(limit: int = 1, start_date: str = None):
 
 @app.get("/backtest")
 async def backtest(start_date: str = "2023-01-01", limit: int = 700, used_assets: int = 3,
-                   use_gold: bool = True, benchmark: str = "BTC", timeframe: str = "1d",
+                   use_gold: bool = None, benchmark: str = "BTC", timeframe: str = "1d",
                    allocation_mode: str = "Aggressive"):
     """
     Run backtest using MajorSync pairwise tournament strategy
     
     allocation_mode: "Aggressive" (100% winner), "Semi-Aggressive" (80/20), "Conservative" (60/30/10)
+    use_gold: Override ASSET_CONFIG["GOLD"] if specified
     """
     try:
+        # Determine if we should use GOLD (API param overrides config)
+        use_gold_final = use_gold if use_gold is not None else ASSET_CONFIG.get("GOLD", True)
+        
         print("\n" + "="*80)
         print("STARTING MAJORSYNC BACKTEST")
+        print("="*80)
+        print(f"Active Assets: {[key for key, val in ASSET_CONFIG.items() if val and key != 'GOLD']}")
+        print(f"Use GOLD: {use_gold_final}")
         print("="*80 + "\n")
         
-        # Load ALL crypto assets for tournament
+        # Load ALL crypto assets for tournament (excluding PAXG/GOLD)
         assets_data = {}
         all_crypto_assets = [asset for asset in ALL_ASSETS if asset[0] != "PAXGUSDT"]
         
-        print(f"[BACKTEST] Loading crypto assets: {[s for s, _ in all_crypto_assets]}\n")
+        print(f"[BACKTEST] Loading enabled crypto assets: {[s for s, _ in all_crypto_assets]}\n")
         
         for symbol, _ in all_crypto_assets:
             instrument = symbol.replace("USDT", "")
+            
+            # Double-check asset is enabled
+            if not ASSET_CONFIG.get(instrument, False):
+                print(f"[SKIPPED] {instrument}: Disabled in ASSET_CONFIG")
+                continue
+            
             df = query_neon_with_retry(instrument)
             if not df.empty:
                 # ✅ CRITICAL: Compute indicators INCLUDING QB for individual trend filter
@@ -262,22 +299,27 @@ async def backtest(start_date: str = "2023-01-01", limit: int = 700, used_assets
             else:
                 print(f"[WARNING] {instrument} not found in Neon!")
         
-        # Load GOLD
+        # Load GOLD (only if enabled)
         print(f"\n[BACKTEST] Loading GOLD (PAXG)...")
-        gold_df = query_neon_with_retry("PAXG")
-        if not gold_df.empty:
-            gold_data = compute_indicators(gold_df)
-            
-            if 'QB' not in gold_data.columns:
-                print(f"[ERROR] GOLD: QB column missing!")
-            else:
-                gold_qb_count = (gold_data['QB'] == 1).sum()
-                print(f"[LOADED] GOLD: {len(gold_df)} rows, QB bullish on {gold_qb_count} days")
+        
+        if not use_gold_final:
+            print("[BACKTEST] GOLD disabled, using CASH as fallback")
+            gold_data = pd.DataFrame()
         else:
-            print("[WARNING] GOLD not in Neon, fetching from API...")
-            market_data = fetch_market_data("PAXGUSDT", timeframe, limit)
-            gold_data = compute_indicators(market_data["ohlcv"])
-            print(f"[LOADED] GOLD from API: {len(market_data['ohlcv'])} rows")
+            gold_df = query_neon_with_retry("PAXG")
+            if not gold_df.empty:
+                gold_data = compute_indicators(gold_df)
+                
+                if 'QB' not in gold_data.columns:
+                    print(f"[ERROR] GOLD: QB column missing!")
+                else:
+                    gold_qb_count = (gold_data['QB'] == 1).sum()
+                    print(f"[LOADED] GOLD: {len(gold_df)} rows, QB bullish on {gold_qb_count} days")
+            else:
+                print("[WARNING] GOLD not in Neon, fetching from API...")
+                market_data = fetch_market_data("PAXGUSDT", timeframe, limit)
+                gold_data = compute_indicators(market_data["ohlcv"])
+                print(f"[LOADED] GOLD from API: {len(market_data['ohlcv'])} rows")
 
         if not assets_data:
             return {"error": "No data available in Neon"}
@@ -329,7 +371,7 @@ async def backtest(start_date: str = "2023-01-01", limit: int = 700, used_assets
             tournament_scores,
             gold_data_aligned,
             start_date=str(common_start.date()),
-            use_gold=use_gold,
+            use_gold=use_gold_final,
             allocation_mode=allocation_mode
         )
         
@@ -491,26 +533,39 @@ async def backtest(start_date: str = "2023-01-01", limit: int = 700, used_assets
         return {"error": str(e)}
 
 @app.get("/rebalance")
-async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str = "1d", 
+async def rebalance(used_assets: int = 3, use_gold: bool = None, timeframe: str = "1d", 
                    limit: int = 1, allocation_mode: str = "Aggressive"):
     """
     Get current allocation recommendation using MajorSync pairwise tournament
     
     allocation_mode: "Aggressive", "Semi-Aggressive", or "Conservative"
+    use_gold: Override ASSET_CONFIG["GOLD"] if specified
     """
     try:
+        # Determine if we should use GOLD
+        use_gold_final = use_gold if use_gold is not None else ASSET_CONFIG.get("GOLD", True)
+        
         print("\n" + "="*80)
         print("REBALANCE REQUEST")
+        print("="*80)
+        print(f"Active Assets: {[key for key, val in ASSET_CONFIG.items() if val and key != 'GOLD']}")
+        print(f"Use GOLD: {use_gold_final}")
         print("="*80 + "\n")
         
-        # Load ALL crypto assets
+        # Load ALL crypto assets (excluding GOLD)
         assets_data = {}
         all_crypto_assets = [asset for asset in ALL_ASSETS if asset[0] != "PAXGUSDT"]
         
-        print(f"[REBALANCE] Loading crypto assets...")
+        print(f"[REBALANCE] Loading enabled crypto assets...")
         
         for symbol, _ in all_crypto_assets:
             instrument = symbol.replace("USDT", "")
+            
+            # Check if asset is enabled
+            if not ASSET_CONFIG.get(instrument, False):
+                print(f"[SKIPPED] {instrument}: Disabled in ASSET_CONFIG")
+                continue
+            
             df = query_neon_with_retry(instrument)
             if not df.empty:
                 # ✅ CRITICAL: Compute indicators INCLUDING QB
@@ -522,21 +577,26 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
                 else:
                     print(f"[ERROR] {instrument}: QB column missing!")
         
-        # Load GOLD
+        # Load GOLD (only if enabled)
         print(f"[REBALANCE] Loading GOLD...")
-        gold_df = query_neon_with_retry("PAXG")
-        if not gold_df.empty:
-            gold_data = compute_indicators(gold_df)
-            
-            if 'QB' in gold_data.columns:
-                gold_qb_last = gold_data['QB'].iloc[-1]
-                print(f"[LOADED] GOLD: {len(gold_df)} rows, current QB={gold_qb_last}")
-            else:
-                print(f"[ERROR] GOLD: QB column missing!")
+        
+        if not use_gold_final:
+            print("[REBALANCE] GOLD disabled, using CASH as fallback")
+            gold_data = pd.DataFrame()
         else:
-            print("[WARNING] Fetching GOLD from API...")
-            market_data = fetch_market_data("PAXGUSDT", timeframe, limit=700)
-            gold_data = compute_indicators(market_data["ohlcv"])
+            gold_df = query_neon_with_retry("PAXG")
+            if not gold_df.empty:
+                gold_data = compute_indicators(gold_df)
+                
+                if 'QB' in gold_data.columns:
+                    gold_qb_last = gold_data['QB'].iloc[-1]
+                    print(f"[LOADED] GOLD: {len(gold_df)} rows, current QB={gold_qb_last}")
+                else:
+                    print(f"[ERROR] GOLD: QB column missing!")
+            else:
+                print("[WARNING] Fetching GOLD from API...")
+                market_data = fetch_market_data("PAXGUSDT", timeframe, limit=700)
+                gold_data = compute_indicators(market_data["ohlcv"])
 
         if not assets_data:
             return {"error": "No data available in Neon"}
@@ -546,12 +606,12 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
         # Run pairwise tournament
         tournament_scores, _ = run_pairwise_tournament(assets_data)
         
-        # ✅ FIX: Remove the incorrect allocation_history parameter
+        # Run rotation
         equity_filtered, alloc_hist, switches = rotate_equity_majorsync(
             assets_data,
             tournament_scores,
             gold_data,
-            use_gold=use_gold,
+            use_gold=use_gold_final,
             allocation_mode=allocation_mode
         )
         
