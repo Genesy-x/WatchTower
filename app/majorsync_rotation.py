@@ -6,11 +6,13 @@ Allocation Modes:
 - Semi-Aggressive: 80% winner, 20% second place
 - Conservative:    60% winner, 30% second, 10% third
 
-Key Rules:
+Key Rules (EXACT PINESCRIPT LOGIC):
 1. Tournament ranks assets using pairwise comparisons (see tournament_pairwise.py)
-2. ONLY allocate to assets with individual QB=1 (bullish signal)
-3. If allocated asset has QB=-1, that portion goes to cash/gold
-4. If NO crypto assets are bullish -> GOLD (if GOLD.QB=1) or CASH
+2. Check if top N assets from tournament are INDIVIDUALLY bullish (QB=1 on PREVIOUS bar)
+3. Only allocate to assets that are BOTH:
+   - Ranked in top N by tournament
+   - Individually bullish (QB[1]=1)
+4. Any unallocated portion goes to GOLD (if GOLD.QB[1]=1) or CASH
 """
 import pandas as pd
 import numpy as np
@@ -28,12 +30,12 @@ def rotate_equity_majorsync(
     allocation_mode: str = "Aggressive"
 ) -> tuple:
     """
-    MajorSync rotation with pairwise tournament rankings
+    MajorSync rotation with pairwise tournament rankings + individual trend filter
     
     Args:
-        assets_data: Dict of asset DataFrames with OHLCV + indicators
+        assets_data: Dict of asset DataFrames with OHLCV + indicators (including QB)
         tournament_scores: DataFrame from run_pairwise_tournament()
-        gold_df: GOLD/PAXG DataFrame
+        gold_df: GOLD/PAXG DataFrame with QB indicator
         start_date: Start date for backtest
         use_gold: Use GOLD as defensive allocation vs CASH
         allocation_mode: "Aggressive", "Semi-Aggressive", or "Conservative"
@@ -51,7 +53,7 @@ def rotate_equity_majorsync(
         tournament_scores = tournament_scores.loc[common_index]
     
     print(f"\n{'='*60}")
-    print(f"MAJORSYNC ROTATION")
+    print(f"MAJORSYNC ROTATION (EXACT PINESCRIPT LOGIC)")
     print(f"{'='*60}")
     print(f"Period: {common_index[0].date()} to {common_index[-1].date()}")
     print(f"Days: {len(common_index)}")
@@ -75,10 +77,14 @@ def rotate_equity_majorsync(
     print(f"[ALLOCATION] Weights: 1st={alloc_weights[0]*100:.0f}%, "
           f"2nd={alloc_weights[1]*100:.0f}%, 3rd={alloc_weights[2]*100:.0f}%\n")
     
-    # Prepare price data
+    # Prepare price data aligned to common_index
     close_prices = {}
+    qb_signals = {}
+    
     for name, df in assets_data.items():
-        close_prices[name] = df.reindex(common_index)['close'].ffill()
+        aligned_df = df.reindex(common_index)
+        close_prices[name] = aligned_df['close'].ffill()
+        qb_signals[name] = aligned_df['QB'].fillna(0)
     
     # GOLD data
     if gold_df is not None and not gold_df.empty:
@@ -92,7 +98,6 @@ def rotate_equity_majorsync(
     # Initialize tracking
     equity = pd.Series(1.0, index=common_index, name='Equity')
     alloc_hist = []
-    detailed_alloc_hist = []  # For debugging
     switches = 0
     prev_primary = None
     
@@ -102,56 +107,83 @@ def rotate_equity_majorsync(
         
         # Get tournament rankings for this day
         scores_today = tournament_scores.loc[date]
-        
-        # Sort assets by score (descending)
         ranked_assets = scores_today.sort_values(ascending=False)
         
-        # Check which assets are individually bullish (QB=1)
-        bullish_assets = []
-        for asset_name in ranked_assets.index:
-            if asset_name in assets_data:
-                asset_df = assets_data[asset_name]
-                if i < len(asset_df):
-                    qb = asset_df.iloc[i]['QB'] if 'QB' in asset_df.columns else 0
-                    if qb == 1:
-                        score = ranked_assets[asset_name]
-                        bullish_assets.append((asset_name, score))
+        # ============================================================
+        # CRITICAL FIX: Use PREVIOUS bar's QB signal (avoid lookahead)
+        # ============================================================
         
-        # Determine allocation
+        # Get top 3 from tournament
+        top3_assets = list(ranked_assets.index[:3])
+        
+        # Check which top3 are individually bullish on PREVIOUS bar
+        bullish_top3 = []
+        
+        if i == 0:
+            # First bar: no previous bar, assume neutral
+            pass
+        else:
+            prev_date = common_index[i-1]
+            
+            for asset_name in top3_assets:
+                if asset_name in qb_signals:
+                    qb_prev = qb_signals[asset_name].loc[prev_date]
+                    
+                    if qb_prev == 1:
+                        score = ranked_assets[asset_name]
+                        bullish_top3.append((asset_name, score))
+        
+        # ============================================================
+        # ALLOCATION LOGIC (matching PineScript lines 332-357)
+        # ============================================================
+        
         allocation = {}
         primary_holding = None
         
-        if not bullish_assets:
-            # No bullish crypto assets
-            if use_gold and gold_qb.iloc[i] == 1:
-                allocation['GOLD'] = 1.0
-                primary_holding = 'GOLD'
+        # Determine weights for bullish top3
+        final_alloc_weights = {}
+        
+        for rank_idx, (asset_name, score) in enumerate(bullish_top3[:3]):
+            if rank_idx < len(alloc_weights) and alloc_weights[rank_idx] > 0:
+                final_alloc_weights[asset_name] = alloc_weights[rank_idx]
+        
+        # Calculate total allocated
+        total_allocated = sum(final_alloc_weights.values())
+        
+        if total_allocated == 0:
+            # No bullish crypto assets -> GOLD or CASH
+            if i > 0:
+                prev_date = common_index[i-1]
+                gold_qb_prev = gold_qb.loc[prev_date]
+                
+                if use_gold and gold_qb_prev == 1:
+                    allocation['GOLD'] = 1.0
+                    primary_holding = 'GOLD'
+                else:
+                    allocation['CASH'] = 1.0
+                    primary_holding = 'CASH'
             else:
                 allocation['CASH'] = 1.0
                 primary_holding = 'CASH'
         else:
-            # Allocate to top bullish assets based on mode
-            for rank_idx in range(min(3, len(bullish_assets))):
-                if alloc_weights[rank_idx] > 0:
-                    asset_name, score = bullish_assets[rank_idx]
-                    allocation[asset_name] = alloc_weights[rank_idx]
-                    
-                    if rank_idx == 0:
-                        primary_holding = asset_name
+            # Allocate to bullish assets
+            for asset_name, weight in final_alloc_weights.items():
+                allocation[asset_name] = weight
             
-            # Remainder goes to cash (if any)
-            total_allocated = sum(allocation.values())
+            # Remainder to CASH
             if total_allocated < 1.0:
                 allocation['CASH'] = round(1.0 - total_allocated, 10)
             
-            if primary_holding is None and allocation:
-                primary_holding = list(allocation.keys())[0]
+            # Primary = highest weighted asset
+            primary_holding = max(final_alloc_weights, key=final_alloc_weights.get)
         
         # Record allocation
         alloc_hist.append(primary_holding if primary_holding else 'CASH')
-        detailed_alloc_hist.append(allocation.copy())
         
-        # Calculate weighted return
+        # ============================================================
+        # CALCULATE WEIGHTED RETURN
+        # ============================================================
+        
         if i == 0:
             weighted_return = 0
         else:
@@ -160,19 +192,13 @@ def rotate_equity_majorsync(
             for asset_name, weight in allocation.items():
                 if weight == 0:
                     continue
-                    
+                
                 if asset_name == 'CASH':
                     asset_return = 0
                 elif asset_name == 'GOLD':
-                    if i > 0:
-                        asset_return = (gold_close.iloc[i] - gold_close.iloc[i-1]) / gold_close.iloc[i-1]
-                    else:
-                        asset_return = 0
+                    asset_return = (gold_close.iloc[i] - gold_close.iloc[i-1]) / gold_close.iloc[i-1]
                 elif asset_name in close_prices:
-                    if i > 0:
-                        asset_return = (close_prices[asset_name].iloc[i] - close_prices[asset_name].iloc[i-1]) / close_prices[asset_name].iloc[i-1]
-                    else:
-                        asset_return = 0
+                    asset_return = (close_prices[asset_name].iloc[i] - close_prices[asset_name].iloc[i-1]) / close_prices[asset_name].iloc[i-1]
                 else:
                     asset_return = 0
                 
@@ -193,8 +219,14 @@ def rotate_equity_majorsync(
         # Debug first few days
         if i < 5:
             print(f"\n[DAY {i}] {date.date()}")
-            print(f"  Tournament scores: {ranked_assets.to_dict()}")
-            print(f"  Bullish assets: {[name for name, _ in bullish_assets]}")
+            print(f"  Tournament top3: {top3_assets}")
+            if i > 0:
+                print(f"  QB signals (prev bar):")
+                for asset in top3_assets:
+                    if asset in qb_signals:
+                        qb_val = qb_signals[asset].iloc[i-1]
+                        print(f"    {asset}: {qb_val}")
+            print(f"  Bullish top3: {[name for name, _ in bullish_top3]}")
             print(f"  Allocation: {allocation}")
             print(f"  Primary: {primary_holding}")
             print(f"  Weighted return: {weighted_return*100:.2f}%")
