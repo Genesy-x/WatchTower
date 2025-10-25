@@ -250,8 +250,15 @@ async def backtest(start_date: str = "2023-01-01", limit: int = 700, used_assets
             instrument = symbol.replace("USDT", "")
             df = query_neon_with_retry(instrument)
             if not df.empty:
+                # ✅ CRITICAL: Compute indicators INCLUDING QB for individual trend filter
                 assets_data[instrument] = compute_indicators(df)
-                print(f"[LOADED] {instrument}: {len(df)} rows, indicators computed")
+                
+                # Verify QB column exists
+                if 'QB' not in assets_data[instrument].columns:
+                    print(f"[ERROR] {instrument}: QB column missing after compute_indicators!")
+                else:
+                    qb_count = (assets_data[instrument]['QB'] == 1).sum()
+                    print(f"[LOADED] {instrument}: {len(df)} rows, QB bullish on {qb_count} days")
             else:
                 print(f"[WARNING] {instrument} not found in Neon!")
         
@@ -260,7 +267,12 @@ async def backtest(start_date: str = "2023-01-01", limit: int = 700, used_assets
         gold_df = query_neon_with_retry("PAXG")
         if not gold_df.empty:
             gold_data = compute_indicators(gold_df)
-            print(f"[LOADED] GOLD: {len(gold_df)} rows")
+            
+            if 'QB' not in gold_data.columns:
+                print(f"[ERROR] GOLD: QB column missing!")
+            else:
+                gold_qb_count = (gold_data['QB'] == 1).sum()
+                print(f"[LOADED] GOLD: {len(gold_df)} rows, QB bullish on {gold_qb_count} days")
         else:
             print("[WARNING] GOLD not in Neon, fetching from API...")
             market_data = fetch_market_data("PAXGUSDT", timeframe, limit)
@@ -297,11 +309,21 @@ async def backtest(start_date: str = "2023-01-01", limit: int = 700, used_assets
         # Align data to common start
         aligned_assets = {}
         for asset in assets_data.keys():
-            aligned_assets[asset] = assets_data[asset][assets_data[asset].index >= common_start]
+            aligned_df = assets_data[asset][assets_data[asset].index >= common_start]
+            aligned_assets[asset] = aligned_df
+            
+            # ✅ Verify QB column exists in aligned data
+            if 'QB' not in aligned_df.columns:
+                print(f"[ERROR] {asset}: QB column missing in aligned data!")
         
         gold_data_aligned = gold_data[gold_data.index >= common_start] if not gold_data.empty else pd.DataFrame()
         
+        # ✅ Verify GOLD has QB
+        if not gold_data_aligned.empty and 'QB' not in gold_data_aligned.columns:
+            print(f"[ERROR] GOLD: QB column missing in aligned data!")
+        
         # RUN MAJORSYNC ROTATION
+        print(f"\n[BACKTEST] Starting rotation with QB-filtered allocation...")
         equity_filtered, alloc_hist_filtered, switches_filtered = rotate_equity_majorsync(
             aligned_assets,
             tournament_scores,
@@ -491,15 +513,26 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
             instrument = symbol.replace("USDT", "")
             df = query_neon_with_retry(instrument)
             if not df.empty:
+                # ✅ CRITICAL: Compute indicators INCLUDING QB
                 assets_data[instrument] = compute_indicators(df)
-                print(f"[LOADED] {instrument}: {len(df)} rows")
+                
+                if 'QB' in assets_data[instrument].columns:
+                    qb_last = assets_data[instrument]['QB'].iloc[-1]
+                    print(f"[LOADED] {instrument}: {len(df)} rows, current QB={qb_last}")
+                else:
+                    print(f"[ERROR] {instrument}: QB column missing!")
         
         # Load GOLD
         print(f"[REBALANCE] Loading GOLD...")
         gold_df = query_neon_with_retry("PAXG")
         if not gold_df.empty:
             gold_data = compute_indicators(gold_df)
-            print(f"[LOADED] GOLD: {len(gold_df)} rows")
+            
+            if 'QB' in gold_data.columns:
+                gold_qb_last = gold_data['QB'].iloc[-1]
+                print(f"[LOADED] GOLD: {len(gold_df)} rows, current QB={gold_qb_last}")
+            else:
+                print(f"[ERROR] GOLD: QB column missing!")
         else:
             print("[WARNING] Fetching GOLD from API...")
             market_data = fetch_market_data("PAXGUSDT", timeframe, limit=700)
