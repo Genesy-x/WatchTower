@@ -312,6 +312,7 @@ async def backtest(start_date: str = "2023-01-01", limit: int = 700, used_assets
         )
         
         print(f"[BACKTEST] Rotation complete: {len(equity_filtered)} days")
+        print(f"[BACKTEST] Allocation history length: {len(alloc_hist_filtered)}")
 
         # Calculate metrics
         metrics_filtered = compute_metrics(equity_filtered)
@@ -319,7 +320,6 @@ async def backtest(start_date: str = "2023-01-01", limit: int = 700, used_assets
 
         strategy_equity = equity_filtered.copy()
         
-        # Strategy metrics
         # Strategy metrics
         strategy_returns = strategy_equity.pct_change().dropna()
         if not strategy_returns.empty and strategy_returns.std() != 0:
@@ -412,6 +412,12 @@ async def backtest(start_date: str = "2023-01-01", limit: int = 700, used_assets
             for k, v in metrics_table.items()
         }
         
+        # ✅ FIX: Create allocation_history dict for color-coding
+        allocation_history = {
+            str(date): str(alloc) 
+            for date, alloc in zip(equity_filtered.index, alloc_hist_filtered)
+        }
+        
         response = {
             "metrics": metrics_table_clean,
             "final_equity_filtered": float(strategy_equity.iloc[-1]) if not strategy_equity.empty else 0,
@@ -421,7 +427,8 @@ async def backtest(start_date: str = "2023-01-01", limit: int = 700, used_assets
             "asset_table": asset_table[:used_assets + 1],  # Return top N + 1 for display
             "equity_curve_filtered": {str(k): float(v) for k, v in strategy_equity.items()} if not strategy_equity.empty else {},
             "buy_hold_equity": {str(k): float(v) for k, v in benchmark_equity.items()} if not benchmark_equity.empty else {},
-            "allocation_mode": allocation_mode
+            "allocation_mode": allocation_mode,
+            "allocation_history": allocation_history  # ✅ ADD THIS for frontend color-coding
         }
 
         # Store in database
@@ -430,7 +437,7 @@ async def backtest(start_date: str = "2023-01-01", limit: int = 700, used_assets
         db = SessionLocal()
         
         equity_dict = {str(k): float(v) for k, v in strategy_equity.items()}
-        alloc_dict = {str(k): str(v) for k, v in zip(equity_filtered.index, alloc_hist_filtered)}
+        alloc_dict = allocation_history  # Use the same dict
         
         metrics_serializable = {
             k: float(v) if isinstance(v, (np.floating, np.integer)) else v 
@@ -506,14 +513,13 @@ async def rebalance(used_assets: int = 3, use_gold: bool = True, timeframe: str 
         # Run pairwise tournament
         tournament_scores, _ = run_pairwise_tournament(assets_data)
         
-        # Run rotation to get current allocation
+        # ✅ FIX: Remove the incorrect allocation_history parameter
         equity_filtered, alloc_hist, switches = rotate_equity_majorsync(
             assets_data,
             tournament_scores,
             gold_data,
             use_gold=use_gold,
-            allocation_mode=allocation_mode,
-            allocation_history={str(k): str(v) for k, v in zip(equity_filtered.index, alloc_hist_filtered)}
+            allocation_mode=allocation_mode
         )
         
         rebalance_equity = equity_filtered.copy()
